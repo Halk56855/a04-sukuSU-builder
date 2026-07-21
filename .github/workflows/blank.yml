@@ -16,17 +16,18 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi lld llvm clang
+          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-      - name: Setup Clang (AOSP Toolchain)
+      - name: Integrate SukiSu Driver Cleanly
         run: |
-          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth=1 -b master-kernel-build-2022 $HOME/clang
-          echo "$HOME/clang/clang-r416183b/bin" >> $GITHUB_PATH
-
-      - name: Setup SukiSu-Ultra
-        run: |
-          # تجربة سكريبت الإعداد بالوضع القياسي
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          # سحب كود SukiSu إلى مجلد drivers
+          git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra drivers/kernelsu --depth=1
+          
+          # إضافة تعريف KernelSU إلى drivers/Makefile إذا لم يكن موجوداً
+          grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
+          
+          # إضافة تعريف KernelSU إلى drivers/Kconfig إذا لم يكن موجوداً
+          grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
       - name: Build Kernel
         run: |
@@ -34,17 +35,16 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC=clang
-          export PATH="$HOME/clang/clang-r416183b/bin:$PATH"
 
-          # البحث عن ملف defconfig وتطبقه
+          # البحث التلقائي عن ملف defconfig الخاص بـ A04 وتطبيقه
           DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*a04*defconfig 2>/dev/null | head -n 1))
+          
           if [ -z "$DEFCONFIG_FILE" ]; then
             DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*defconfig | head -n 1))
           fi
 
           echo "سيتم استخدام ملف الإعدادات: $DEFCONFIG_FILE"
-          make CC=clang $DEFCONFIG_FILE
+          make $DEFCONFIG_FILE
 
           # تعيين اسم النواة المخصص
           echo 'CONFIG_LOCALVERSION="-TragicHorizon-v3-r1"' >> .config
@@ -56,13 +56,14 @@ jobs:
           echo "CONFIG_KALLSYMS_ALL=y" >> .config
           echo "CONFIG_OVERLAY_FS=y" >> .config
 
-          # التجميع العادي
-          make CC=clang -j$(nproc)
+          # بدء عملية التصريف
+          make -j$(nproc)
 
       - name: Create AnyKernel3 Zip
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
           
+          # نسخ ملف النواة الناتج إلى AnyKernel3
           if [ -f arch/arm64/boot/Image.gz-dtb ]; then
             cp arch/arm64/boot/Image.gz-dtb AnyKernel3/
           elif [ -f arch/arm64/boot/Image.gz ]; then
