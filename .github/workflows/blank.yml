@@ -29,7 +29,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-          # البحث التلقائي عن ملف defconfig الخاص بـ A04 وتطبقه
+          # البحث التلقائي عن ملف defconfig الخاص بـ A04 وتطبيقه
           DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*a04*defconfig 2>/dev/null | head -n 1))
           
           if [ -z "$DEFCONFIG_FILE" ]; then
@@ -43,14 +43,14 @@ jobs:
           # تعيين اسم النواة المخصص
           echo 'CONFIG_LOCALVERSION="-TragicHorizon-v3-r1"' >> .config
 
-          # تطبيق خيارات SukiSu و Non-GKI المطلوبة
+          # تطبيق خيارات SukiSu و Non-GKI المطلوبة إجبارياً
           echo "CONFIG_KSU=y" >> .config
           echo "CONFIG_KPM=y" >> .config
           echo "CONFIG_KALLSYMS=y" >> .config
           echo "CONFIG_KALLSYMS_ALL=y" >> .config
           echo "CONFIG_OVERLAY_FS=y" >> .config
 
-          # بدء عملية التصريف بخيطين لتوضيح أي خطأ برمجي إن وجد
+          # بدء عملية التصريف
           make -j2
 
       - name: Create AnyKernel3 Zip
