@@ -16,14 +16,17 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip lld llvm clang gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
-          # إنشاء رابط رمزي لـ ld.lld لتفادي أخطاء vDSO
-          sudo ln -sf /usr/bin/ld.lld /usr/bin/ld.lld.1 2>/dev/null || true
-          sudo ln -sf /usr/bin/aarch64-linux-gnu-ld /usr/bin/ld.lld
+          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi lld llvm clang
 
-      - name: Setup SukiSu-Ultra (Builtin Branch)
+      - name: Setup Clang (AOSP Toolchain)
         run: |
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth=1 -b master-kernel-build-2022 $HOME/clang
+          echo "$HOME/clang/clang-r416183b/bin" >> $GITHUB_PATH
+
+      - name: Setup SukiSu-Ultra
+        run: |
+          # تجربة سكريبت الإعداد بالوضع القياسي
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
 
       - name: Build Kernel
         run: |
@@ -31,36 +34,35 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export PATH="$HOME/clang/clang-r416183b/bin:$PATH"
 
-          # البحث التلقائي عن ملف defconfig الخاص بـ A04 وتطبيقه
+          # البحث عن ملف defconfig وتطبقه
           DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*a04*defconfig 2>/dev/null | head -n 1))
-          
           if [ -z "$DEFCONFIG_FILE" ]; then
-            echo "لم يتم العثور على ملف a04 defconfig محدد، جاري استخدام أول defconfig متاح..."
             DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*defconfig | head -n 1))
           fi
 
           echo "سيتم استخدام ملف الإعدادات: $DEFCONFIG_FILE"
-          make $DEFCONFIG_FILE
+          make CC=clang $DEFCONFIG_FILE
 
           # تعيين اسم النواة المخصص
           echo 'CONFIG_LOCALVERSION="-TragicHorizon-v3-r1"' >> .config
 
-          # تطبيق خيارات SukiSu و Non-GKI المطلوبة إجبارياً
+          # تطبيق خيارات SukiSu و Non-GKI
           echo "CONFIG_KSU=y" >> .config
           echo "CONFIG_KPM=y" >> .config
           echo "CONFIG_KALLSYMS=y" >> .config
           echo "CONFIG_KALLSYMS_ALL=y" >> .config
           echo "CONFIG_OVERLAY_FS=y" >> .config
 
-          # بدء عملية التصريف
-          make -j$(nproc)
+          # التجميع العادي
+          make CC=clang -j$(nproc)
 
       - name: Create AnyKernel3 Zip
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
           
-          # نسخ ملف النواة الناتج إلى AnyKernel3
           if [ -f arch/arm64/boot/Image.gz-dtb ]; then
             cp arch/arm64/boot/Image.gz-dtb AnyKernel3/
           elif [ -f arch/arm64/boot/Image.gz ]; then
