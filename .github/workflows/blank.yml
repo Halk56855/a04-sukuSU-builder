@@ -28,8 +28,19 @@ jobs:
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
 
-          # تطبيق ملف الإعدادات الخاص بجهاز A04
-          make a04_defconfig || make a04_eur_open_defconfig
+          # البحث التلقائي عن ملف defconfig الخاص بجهاز A04 وتطبيقه
+          DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*a04*defconfig 2>/dev/null | head -n 1))
+          
+          if [ -z "$DEFCONFIG_FILE" ]; then
+            echo "لم يتم العثور على ملف a04 defconfig محدد، جاري استخدام أول defconfig متاح..."
+            DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*defconfig | head -n 1))
+          fi
+
+          echo "سيتم استخدام ملف الإعدادات: $DEFCONFIG_FILE"
+          make $DEFCONFIG_FILE
+
+          # تعيين اسم النواة المخصص
+          echo 'CONFIG_LOCALVERSION="-TragicHorizon-v3-r1"' >> .config
 
           # تطبيق خيارات SukiSu و Non-GKI المطلوبة
           echo "CONFIG_KSU=y" >> .config
@@ -55,10 +66,10 @@ jobs:
           fi
 
           cd AnyKernel3
-          zip -r9 ../SukiSu-Kernel-A04.zip * -x .git README.md *placeholder
+          zip -r9 ../TragicHorizon-v3-r1-A04.zip * -x .git README.md *placeholder
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SukiSu-Kernel-A04
-          path: SukiSu-Kernel-A04.zip
+          name: TragicHorizon-v3-r1-A04
+          path: TragicHorizon-v3-r1-A04.zip
