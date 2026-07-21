@@ -13,47 +13,57 @@ jobs:
         with:
           repository: 'DaniTheSillyFem/kernel_samsung_a04'
 
-      - name: Install Dependencies
+      - name: Install System Dependencies
         run: |
           sudo apt update
           sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      - name: Setup AOSP Clang Toolchain (r383902b)
+        run: |
+          mkdir -p toolchains/clang
+          # سحب النسخة الدقيقة من Clang r383902b المستخدمة في سكريبت A04
+          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth=1 -b master-kernel-build-2020 toolchains/clang
+          echo "$GITHUB_WORKSPACE/toolchains/clang/clang-r383902b/bin" >> $GITHUB_PATH
 
       - name: Integrate SukiSu Driver Cleanly
         run: |
           # سحب كود SukiSu وتحديث الـ Submodules
           git clone --recursive https://github.com/SukiSU-Ultra/SukiSU-Ultra drivers/kernelsu --depth=1
           
-          # التأكد من ترتيب الملفات إذا كانت داخل مجلد فرعي
+          # ترتيب الملفات إذا كانت داخل مجلد فرعي
           if [ -d "drivers/kernelsu/kernel" ]; then
             cp -r drivers/kernelsu/kernel/* drivers/kernelsu/ || true
           fi
 
-          # إضافة تعريف KernelSU إلى drivers/Makefile
+          # ربط KernelSU بـ Makefile و Kconfig
           if ! grep -q "kernelsu" drivers/Makefile; then
             echo 'obj-y += kernelsu/' >> drivers/Makefile
           fi
           
-          # إضافة تعريف KernelSU إلى drivers/Kconfig
           if ! grep -q "kernelsu" drivers/Kconfig; then
             sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
           fi
 
       - name: Build Kernel
         run: |
+          # تجهيز مسارات الأدوات
+          CLANG_DIR="$GITHUB_WORKSPACE/toolchains/clang/clang-r383902b/bin"
+          export PATH="$CLANG_DIR:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export LD=ld.lld
 
-          # البحث التلقائي عن ملف defconfig الخاص بـ A04 وتطبيقه
+          # البحث عن ملف defconfig وتطبقه
           DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*a04*defconfig 2>/dev/null | head -n 1))
-          
           if [ -z "$DEFCONFIG_FILE" ]; then
             DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*defconfig | head -n 1))
           fi
 
           echo "سيتم استخدام ملف الإعدادات: $DEFCONFIG_FILE"
-          make $DEFCONFIG_FILE
+          make CC=clang LD=ld.lld $DEFCONFIG_FILE
 
           # تعيين اسم النواة المخصص
           echo 'CONFIG_LOCALVERSION="-TragicHorizon-v3-r1"' >> .config
@@ -65,14 +75,13 @@ jobs:
           echo "CONFIG_KALLSYMS_ALL=y" >> .config
           echo "CONFIG_OVERLAY_FS=y" >> .config
 
-          # بدء عملية التصريف
-          make -j$(nproc)
+          # بدء عملية التصريف باستخدام Clang والـ Linker المتوافقين
+          make CC=clang LD=ld.lld Real_CC=clang -j$(nproc)
 
       - name: Create AnyKernel3 Zip
         run: |
           git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
           
-          # نسخ ملف النواة الناتج إلى AnyKernel3
           if [ -f arch/arm64/boot/Image.gz-dtb ]; then
             cp arch/arm64/boot/Image.gz-dtb AnyKernel3/
           elif [ -f arch/arm64/boot/Image.gz ]; then
