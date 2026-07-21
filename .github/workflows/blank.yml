@@ -16,9 +16,9 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip clang gcc-aarch64-linux-gnu
+          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip clang lld llvm gcc-aarch64-linux-gnu
 
-      - name: Setup SukiSu-Ultra (Builtin)
+      - name: Setup SukiSu-Ultra (Builtin Branch)
         run: |
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
 
@@ -27,8 +27,9 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
+          export LD=ld.lld
 
-          # البحث التلقائي عن ملف defconfig الخاص بجهاز A04 وتطبيقه
+          # البحث التلقائي عن ملف defconfig الخاص بـ A04 وتطبقه
           DEFCONFIG_FILE=$(basename $(ls arch/arm64/configs/*a04*defconfig 2>/dev/null | head -n 1))
           
           if [ -z "$DEFCONFIG_FILE" ]; then
