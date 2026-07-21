@@ -16,7 +16,10 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip lld llvm clang gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          # إنشاء رابط رمزي لـ ld.lld لتفادي أخطاء vDSO
+          sudo ln -sf /usr/bin/ld.lld /usr/bin/ld.lld.1 2>/dev/null || true
+          sudo ln -sf /usr/bin/aarch64-linux-gnu-ld /usr/bin/ld.lld
 
       - name: Setup SukiSu-Ultra (Builtin Branch)
         run: |
@@ -51,7 +54,7 @@ jobs:
           echo "CONFIG_OVERLAY_FS=y" >> .config
 
           # بدء عملية التصريف
-          make -j2
+          make -j$(nproc)
 
       - name: Create AnyKernel3 Zip
         run: |
