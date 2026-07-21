@@ -27,6 +27,7 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC=clang
           export LD=ld.lld
 
           # البحث التلقائي عن ملف defconfig الخاص بـ A04 وتطبقه
@@ -38,7 +39,7 @@ jobs:
           fi
 
           echo "سيتم استخدام ملف الإعدادات: $DEFCONFIG_FILE"
-          make $DEFCONFIG_FILE
+          make CC=clang $DEFCONFIG_FILE
 
           # تعيين اسم النواة المخصص
           echo 'CONFIG_LOCALVERSION="-TragicHorizon-v3-r1"' >> .config
@@ -51,7 +52,7 @@ jobs:
           echo "CONFIG_OVERLAY_FS=y" >> .config
 
           # بدء عملية التصريف
-          make -j$(nproc)
+          make CC=clang LD=ld.lld -j$(nproc)
 
       - name: Create AnyKernel3 Zip
         run: |
