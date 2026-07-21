@@ -1,0 +1,66 @@
+name: Build Samsung A04 Kernel with SukiSu
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          repository: 'DaniTheSillyFem/kernel_samsung_a04'
+          ref: '13.0' # أو الفرع الرئيسي الخااص بالنواة لديك
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip clang gcc-aarch64-linux-gnu
+
+      - name: Setup SukiSu-Ultra (Builtin)
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+
+      - name: Build Kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          # ابحث عن اسم defconfig الصحيح داخل arch/arm64/configs في مستودعك
+          # إذا كان الملف باسم a04_defconfig أو a04_eur_open_defconfig استبدله هنا
+          make a04_defconfig || make a04_eur_open_defconfig
+
+          # تطبيق خيارات SukiSu و Non-GKI
+          echo "CONFIG_KSU=y" >> .config
+          echo "CONFIG_KPM=y" >> .config
+          echo "CONFIG_KALLSYMS=y" >> .config
+          echo "CONFIG_KALLSYMS_ALL=y" >> .config
+          echo "CONFIG_OVERLAY_FS=y" >> .config
+
+          # بدء عملية التصريف
+          make -j$(nproc)
+
+      - name: Create AnyKernel3 Zip
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
+          
+          # نسخ النواة المصرفة
+          if [ -f arch/arm64/boot/Image.gz-dtb ]; then
+            cp arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          elif [ -f arch/arm64/boot/Image.gz ]; then
+            cp arch/arm64/boot/Image.gz AnyKernel3/
+          elif [ -f arch/arm64/boot/Image ]; then
+            cp arch/arm64/boot/Image AnyKernel3/
+          fi
+
+          cd AnyKernel3
+          zip -r9 ../SukiSu-Kernel-A04.zip * -x .git README.md *placeholder
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SukiSu-Kernel-A04
+          path: SukiSu-Kernel-A04.zip
