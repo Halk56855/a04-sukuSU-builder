@@ -74,18 +74,22 @@ integrate_sukisu() {
     log "Running SukiSU-Ultra official setup script..."
     curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
 
-    # 4. إصلاحات التوافقية لنواة Linux 4.19
+    # 4. إصلاح خطأ ترويسة susfs في ملف kernel_includes.h تلقائياً (الحل الجذري للمشكلة)
+    log "Disabling SUSFS includes in kernel_includes.h..."
+    if [ -f "drivers/kernelsu/kernel_includes.h" ]; then
+        sed -i 's|#include <linux/susfs.h>|// #include <linux/susfs.h>|g' drivers/kernelsu/kernel_includes.h
+    fi
+
+    # 5. إصلاحات التوافقية لنواة Linux 4.19
     log "Applying Kernel 4.19 compatibility patches..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # 5. تعطيل استدعاءات SUSFS لمنع خطأ الملف المفقود (linux/susfs.h)
-    log "Disabling SUSFS includes to prevent missing header error..."
-    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/susfs.h>|// #include <linux/susfs.h>|g' {} + || true
+    # 6. تعطيل استدعاءات SUSFS العامة الأخرى
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include "susfs.h"|// #include "susfs.h"|g' {} + || true
 
-    # 6. معالجة ملف file_wrapper.c لنواة 4.19
+    # 7. معالجة ملف file_wrapper.c لنواة 4.19
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
         log "Patching file_wrapper.c for Kernel 4.19 API..."
         python3 -c '
