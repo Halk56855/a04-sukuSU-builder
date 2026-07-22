@@ -1,5 +1,4 @@
-name: Build SukiSU-Ultra Kernel for Galaxy A04
-
+name: Build Samsung A04 ReSukiSU Kernel
 on:
   workflow_dispatch:
 
@@ -7,202 +6,45 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Workflow Repository
-        uses: actions/checkout@v4
+    - name: Checkout Build Tools
+      uses: actions/checkout@v4
 
-      - name: Free Disk Space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils-aarch64-linux-gnu
 
-      - name: Disk Cleanup & Diagnostics
-        run: |
-          sudo rm -rf /var/lib/apt/lists/* /tmp/* || true
-          sudo apt-get clean || true
-          df -h .
+    - name: Download Toolchain (Clang)
+      run: |
+        mkdir clang
+        cd clang
+        wget https://googlesource.com
+        tar -xf clang-r487747c.tar.gz
+        echo "$(pwd)/bin" >> $GITHUB_PATH
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu bc git wget curl zip python3 bison flex libssl-dev lld llvm clang
+    - name: Clone Kernel Source
+      run: |
+        git clone --depth=1 https://github.com -b 13 kernel-source
 
-      - name: Clone Kernel Source
-        run: |
-          set -euo pipefail
-          KERNEL_DIR="${{ github.workspace }}/kernel-src"
-          rm -rf "$KERNEL_DIR"
-          echo "Cloning Samsung A04 kernel source..."
-          git clone --depth=1 https://github.com/DaniTheSillyFem/kernel_samsung_a04.git -b linux-4.19.y "$KERNEL_DIR"
+    - name: Integrate ReSukiSU
+      run: |
+        cd kernel-source
+        git submodule add https://github.com drivers/kernelsu
+        echo "obj-y += kernelsu/" >> drivers/Makefile
+        sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+        echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig
 
-      - name: Setup Toolchains
-        run: |
-          set -euo pipefail
-          mkdir -p toolchains
+    - name: Build Kernel
+      run: |
+        cd kernel-source
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        make O=out a04_defconfig
+        make O=out -j$(nproc)
 
-          # 1. Setup Clang Toolchain
-          CLANG_URL="https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902b.tar.gz"
-          CLANG_DIR="${{ github.workspace }}/toolchains/clang-r383902"
-          rm -rf "$CLANG_DIR" clang.tar.gz tmp_clang
-          
-          curl -L -o clang.tar.gz "$CLANG_URL"
-          mkdir -p tmp_clang
-          tar -xzf clang.tar.gz -C tmp_clang
-          
-          mkdir -p "$CLANG_DIR"
-          if ls tmp_clang/*/bin/clang 1>/dev/null 2>&1; then
-              cp -r tmp_clang/*/* "$CLANG_DIR/" 2>/dev/null || true
-          elif [ -f "tmp_clang/bin/clang" ]; then
-              cp -r tmp_clang/* "$CLANG_DIR/"
-          else
-              tar -xzf clang.tar.gz -C "$CLANG_DIR" --strip-components=1 || true
-          fi
-          rm -rf tmp_clang clang.tar.gz
-
-          if [ -f "$CLANG_DIR/bin/clang" ]; then
-              echo "Clang successfully setup at $CLANG_DIR/bin/clang"
-          else
-              echo "Error: Clang binary missing!" && exit 1
-          fi
-
-          # 2. Setup GCC Toolchain
-          GCC_DIR="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9"
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git "$GCC_DIR" || true
-
-      - name: Integrate SUSFS & SukiSU-Ultra
-        run: |
-          cd ${{ github.workspace }}/kernel-src
-
-          mkdir -p drivers
-          if [ -d "drivers/misc/mediatek/connectivity" ]; then
-              rm -rf drivers/misc/mediatek/connectivity
-              git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
-              rm -rf drivers/misc/mediatek/connectivity/.git
-          fi
-
-          # Strip all -Werror variants from Makefiles and .mk files
-          find . \( -name Makefile -o -name "*.mk" \) -exec sed -i 's/-Werror[^ ]*//g' {} + || true
-
-          # Fix C prototypes error in mm/zsmalloc.c
-          if [ -f "mm/zsmalloc.c" ]; then
-              sed -i 's/try_schedule_zs_compact()/try_schedule_zs_compact(void)/g' mm/zsmalloc.c || true
-          fi
-
-          # Clone & Apply SUSFS Patch
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu || true
-
-          mkdir -p include/linux
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
-          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h fs/ 2>/dev/null || true
-
-          if [ -f "susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch" ]; then
-              patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch || true
-          fi
-
-          # Setup SukiSU-Ultra
-          rm -rf drivers/kernelsu
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin || true
-
-          if [ -d "drivers/kernelsu" ]; then
-              find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
-              find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
-              find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
-          fi
-
-      - name: Build Kernel
-        run: |
-          set -euo pipefail
-          KERNEL_DIR="${{ github.workspace }}/kernel-src"
-          cd "$KERNEL_DIR"
-          
-          export ARCH=arm64
-          
-          CLANG_BIN="${{ github.workspace }}/toolchains/clang-r383902/bin"
-          export PATH="$CLANG_BIN:$PATH"
-          
-          GCC_BIN="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-android-"
-          if [ -f "${GCC_BIN}gcc" ]; then
-              export CROSS_COMPILE="$GCC_BIN"
-          else
-              export CROSS_COMPILE="aarch64-linux-gnu-"
-          fi
-          
-          export CC="$CLANG_BIN/clang"
-          export CLANG_TRIPLE="aarch64-linux-android-"
-          export HOSTCC=gcc
-          export HOSTCXX=g++
-          JOBS=$(nproc --all)
-          
-          DEFCONFIG_PATH=""
-          if [ -d "arch/arm64/configs" ]; then
-              DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*a04*" -o -name "*defconfig*" -o -name "*mt6765*" \) 2>/dev/null | head -1 || true)
-          fi
-          
-          if [ -z "$DEFCONFIG_PATH" ]; then
-              DEFCONFIG_PATH=$(find arch -type f -name "*defconfig*" 2>/dev/null | head -1 || true)
-          fi
-
-          if [[ "$DEFCONFIG_PATH" == *"arch/arm64/configs/"* ]]; then
-              DEFCONFIG_TARGET=$(echo "$DEFCONFIG_PATH" | sed 's|arch/arm64/configs/||')
-          else
-              DEFCONFIG_TARGET=$(basename "$DEFCONFIG_PATH")
-          fi
-
-          make O=out "$DEFCONFIG_TARGET" CC="$CLANG_BIN/clang" HOSTCC=gcc
-          
-          # Config adjustments
-          scripts/config --file out/.config --disable CONFIG_CC_WERROR || true
-          scripts/config --file out/.config --enable CONFIG_KSU
-          scripts/config --file out/.config --enable CONFIG_KPM
-          scripts/config --file out/.config --enable CONFIG_KALLSYMS
-          scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
-          scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
-          scripts/config --file out/.config --enable CONFIG_KSU_SUSFS || true
-          scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT || true
-          
-          for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
-              scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
-          done
-          
-          scripts/config --file out/.config --enable CONFIG_SECURITY_SELINUX_DEVELOP || true
-          scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE || true
-          scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-SUSFS-A04"
-          scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
-          
-          make O=out olddefconfig CC="$CLANG_BIN/clang" HOSTCC=gcc || true
-          make O=out -j"${JOBS}" KCFLAGS="-w -Qunused-arguments" CC="$CLANG_BIN/clang" HOSTCC=gcc
-          
-          [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" arch/arm64/boot/Image
-
-      - name: Package Kernel (AnyKernel3)
-        run: |
-          cd ${{ github.workspace }}
-          git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
-          
-          KERNEL_DIR="${{ github.workspace }}/kernel-src"
-          for img in "$KERNEL_DIR/out/arch/arm64/boot/Image.gz-dtb" "$KERNEL_DIR/out/arch/arm64/boot/Image.gz" "$KERNEL_DIR/out/arch/arm64/boot/Image"; do
-              if [ -f "$img" ]; then
-                  echo "Copying kernel image: $img"
-                  cp "$img" AnyKernel3/
-                  break
-              fi
-          done
-          
-          cd AnyKernel3
-          sed -i 's/block=auto/block=\/dev\/block\/by-name\/boot/g' anykernel.sh || true
-          sed -i 's/is_slot_device=1/is_slot_device=0/g' anykernel.sh || true
-          
-          mkdir -p ../output
-          zip -r9 ../output/SukiSU-SUSFS-A04-Kernel.zip * -x .git README.md *placeholder
-
-      - name: Upload Kernel Zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: SukiSU-SUSFS-A04-Kernel
-          path: output/*.zip
+    - name: Upload Kernel Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Samsung-A04-ReSukiSU-Kernel
+        path: kernel-source/out/arch/arm64/boot/Image.gz-dtb
