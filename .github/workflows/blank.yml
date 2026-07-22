@@ -44,22 +44,19 @@ jobs:
               exit 1
           fi
 
-          # 2. Clone Google AOSP GCC 4.9 (Reliable git clone)
-          echo "Cloning AOSP GCC 4.9 Toolchain..."
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth=1 --single-branch toolchains/aarch64-linux-android-4.9
+          # 2. Clone Reliable AOSP GCC 4.9 Mirror
+          echo "Cloning GCC 4.9 Toolchain..."
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git toolchains/aarch64-linux-android-4.9
 
-          # 3. Find GCC bin directory dynamically
-          GCC_BIN_DIR=$(find toolchains/aarch64-linux-android-4.9 -type d -name "bin" | head -1)
-
-          if [ -z "$GCC_BIN_DIR" ]; then
-              echo "ERROR: Could not find 'bin' directory in GCC repository"
+          # 3. Verify 'bin' directory existence
+          if [ ! -d "toolchains/aarch64-linux-android-4.9/bin" ]; then
+              echo "ERROR: GCC bin directory not found"
+              ls -la toolchains/aarch64-linux-android-4.9
               exit 1
           fi
 
-          echo "Found GCC bin directory at: $GCC_BIN_DIR"
-
           # 4. Create required symlinks for aarch64-linux-androidkernel-*
-          cd "$GCC_BIN_DIR"
+          cd toolchains/aarch64-linux-android-4.9/bin
           for f in aarch64-linux-android-*; do
               if [ -f "$f" ]; then
                   target="${f/aarch64-linux-android-/aarch64-linux-androidkernel-}"
@@ -112,8 +109,7 @@ jobs:
           cd ${{ github.workspace }}
           export ARCH=arm64
           
-          GCC_BIN_DIR=$(find ${{ github.workspace }}/toolchains/aarch64-linux-android-4.9 -type d -name "bin" | head -1)
-          export CROSS_COMPILE="${GCC_BIN_DIR}/aarch64-linux-androidkernel-"
+          export CROSS_COMPILE="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-"
           export CC="${{ github.workspace }}/toolchains/clang-r383902/bin/clang"
           export CLANG_TRIPLE="aarch64-linux-gnu-"
           
