@@ -4,7 +4,7 @@ set -u
 set -o pipefail
 
 # ==============================================================================
-# SukiSU-Ultra (Built-in) + SUSFS Kernel Builder for Samsung Galaxy A04 (SM-A045F)
+# SukiSU-Ultra (Built-in) Kernel Builder for Samsung Galaxy A04 (SM-A045F)
 # Kernel Version: 4.19 (mt6765)
 # Packaging: AnyKernel3 Zip
 # ==============================================================================
@@ -13,28 +13,11 @@ WORK_DIR="$(pwd)"
 KERNEL_DIR="${WORK_DIR}/kernel"
 OUTPUT_DIR="${WORK_DIR}/output"
 TOOLCHAIN_DIR="${WORK_DIR}/toolchains"
-SUSFS_DIR="${WORK_DIR}/susfs"
 JOBS=$(nproc --all 2>/dev/null || echo 4)
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $1"; }
 err()  { echo -e "${RED}[x]${NC} $1"; exit 1; }
-
-encoded_src() {
-  local src="$1"
-  local out=""
-  local ch
-  local i=0
-  while [ $i -lt ${#src} ]; do
-    ch=$(printf '%s' "$src" | cut -c$((i+1)))
-    case "$ch" in
-      [a-zA-Z0-9]) out="${out}${ch}" ;;
-      *) out="${out}$(printf '%%%02X' "'${ch}")" ;;
-    esac
-    i=$((i+1))
-  done
-  printf '%s' "$out"
-}
 
 download_kernel_source() {
     [ -f "$KERNEL_DIR/Makefile" ] && return
@@ -73,61 +56,29 @@ setup_toolchains() {
     fi
 }
 
-integrate_susfs_sukisu() {
-    log "=== Integrating SUSFS + SukiSU-Ultra ==="
+integrate_sukisu() {
+    log "=== Integrating SukiSU-Ultra ==="
     cd "$KERNEL_DIR"
 
-    # 1. إعداد SUSFS Patches
-    mkdir -p "$SUSFS_DIR"
-    cd "$SUSFS_DIR"
-    local GITLAB_API="https://gitlab.com/api/v4/projects/simonpunk%2Fsusfs4ksu/repository"
-    local SUSFS_REF="kernel-4.19"
-
-    curl -L "${GITLAB_API}/files/kernel_patches%2F50_add_susfs_in_kernel-4.19.patch/raw?ref=${SUSFS_REF}" -o "50_add_susfs_in_kernel-4.19.patch" || true
-
-    local SUSFS_FILES=("kernel_patches/fs/susfs.c:fs/susfs.c" "kernel_patches/fs/sus_su.c:fs/sus_su.c" "kernel_patches/include/linux/susfs.h:include/linux/susfs.h" "kernel_patches/include/linux/susfs_def.h:include/linux/susfs_def.h")
-    for entry in "${SUSFS_FILES[@]}"; do
-        local src="${entry%%:*}"
-        local dst="${entry#*:}"
-        mkdir -p "$(dirname "$dst")"
-        curl -L "${GITLAB_API}/files/$(encoded_src "$src")/raw?ref=${SUSFS_REF}" -o "$dst" || true
-    done
-
-    cd "$KERNEL_DIR"
-    if [ -f "${SUSFS_DIR}/50_add_susfs_in_kernel-4.19.patch" ]; then
-        patch -p1 --forward --fuzz=3 --no-backup-if-mismatch < "${SUSFS_DIR}/50_add_susfs_in_kernel-4.19.patch" 2>&1 || true
-        if [ -f fs/notify/fdinfo.c ]; then
-            sed -i 's/out_seq_printf:/out_seq_printf:;/g' fs/notify/fdinfo.c
-            grep -q "inotify_mark_user_mask" fs/notify/fdinfo.c && ! grep -q "#define inotify_mark_user_mask" fs/notify/fdinfo.c && sed -i '/#include <linux\/exportfs.h>/a #define inotify_mark_user_mask(mark) (mark->mask \& IN_ALL_EVENTS)' fs/notify/fdinfo.c
-        fi
-    fi
-
-    [ -f "${SUSFS_DIR}/fs/susfs.c" ] && cp "${SUSFS_DIR}/fs/susfs.c" "fs/susfs.c"
-    [ -f "${SUSFS_DIR}/fs/sus_su.c" ] && cp "${SUSFS_DIR}/fs/sus_su.c" "fs/sus_su.c"
-    [ -f "${SUSFS_DIR}/include/linux/susfs.h" ] && cp "${SUSFS_DIR}/include/linux/susfs.h" "include/linux/susfs.h"
-    [ -f "${SUSFS_DIR}/include/linux/susfs_def.h" ] && cp "${SUSFS_DIR}/include/linux/susfs_def.h" "include/linux/susfs_def.h"
-
-    grep -q "susfs.o" "fs/Makefile" || sed -i '/^obj-y :=.*nsfs.o/a obj-$(CONFIG_KSU_SUSFS) += susfs.o' "fs/Makefile" 2>/dev/null || true
-
-    # 2. إصلاح وحدة الاتصال لـ MediaTek
+    # 1. إصلاح وحدة الاتصال لـ MediaTek
     if [ -d "drivers/misc/mediatek/connectivity" ]; then
         rm -rf drivers/misc/mediatek/connectivity
         git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
 
-    # 3. تثبيت SukiSU-Ultra باستخدام الأمر المباشر الرسمي (Built-in)
+    # 2. تثبيت SukiSU-Ultra باستخدام الأمر المباشر الرسمي (Built-in)
     log "Running official SukiSU-Ultra builtin setup..."
     rm -rf drivers/kernelsu
     curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
 
-    # 4. تطبيق إصلاحات التوافقية لنواة 4.19
+    # 3. تطبيق إصلاحات التوافقية لنواة 4.19
     log "Applying Kernel 4.19 compatibility patches..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # 5. معالجة file_wrapper.c بأمان بدون كسر أقواس C
+    # 4. معالجة file_wrapper.c بأمان بدون كسر أقواس C
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
         python3 -c '
 import re
@@ -159,11 +110,6 @@ configure_kernel() {
     scripts/config --file out/.config --enable CONFIG_KALLSYMS
     scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
     scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
-
-    # خيارات SUSFS
-    for opt in KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_OPEN_REDIRECT KSU_SUSFS_SUS_SU SPOOF_UNAME KSU_SUSFS_ENFORCE_SUSFS KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS KSU_SUSFS_SUS_OVERLAYFS; do
-        scripts/config --file out/.config --enable "CONFIG_${opt}" 2>/dev/null || true
-    done
 
     # تعطيل حماية سامسونج المانعة للروت
     for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
@@ -211,7 +157,7 @@ main() {
     mkdir -p "$OUTPUT_DIR"
     download_kernel_source
     setup_toolchains
-    integrate_susfs_sukisu
+    integrate_sukisu
     configure_kernel
     build_kernel
     package_kernel
