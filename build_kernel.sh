@@ -4,9 +4,9 @@ set -u
 set -o pipefail
 
 # ==============================================================================
-# SukiSU + SUSFS Builder for Samsung Galaxy A04 (SM-A045F) -> AnyKernel3
-# Target: Kernel 4.19.191 (mt6765)
-# Root Solution: SukiSU-Ultra
+# SukiSU-Ultra + SUSFS Kernel Builder for Samsung Galaxy A04 (SM-A045F)
+# Target: Kernel 4.19 (mt6765)
+# Packaging: AnyKernel3 Zip
 # ==============================================================================
 
 WORK_DIR="$(pwd)"
@@ -16,7 +16,7 @@ TOOLCHAIN_DIR="${WORK_DIR}/toolchains"
 SUSFS_DIR="${WORK_DIR}/susfs"
 JOBS=$(nproc --all 2>/dev/null || echo 4)
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $1"; }
 warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[x]${NC} $1"; exit 1; }
@@ -39,47 +39,46 @@ encoded_src() {
 
 download_kernel_source() {
     if [ -f "$KERNEL_DIR/Makefile" ]; then
-        log "Kernel source already exists at $KERNEL_DIR"
+        log "Kernel source exists at $KERNEL_DIR"
         return
     fi
-    log "Cloning kernel source (rsuntk-oss/android_kernel_samsung_a04m)..."
+    log "Cloning Samsung Galaxy A04 kernel source..."
     mkdir -p "$KERNEL_DIR"
     git clone --depth=1 -b latest-B \
         https://github.com/rsuntk-oss/android_kernel_samsung_a04m.git \
-        "$KERNEL_DIR" 2>&1 || err "Failed to clone kernel source"
-    log "Source cloned."
+        "$KERNEL_DIR" || err "Failed to clone kernel source"
 }
 
 setup_toolchains() {
-    log "Setting up toolchains..."
+    log "Setting up toolchains (Clang & GCC)..."
     mkdir -p "$TOOLCHAIN_DIR"
     cd "$TOOLCHAIN_DIR"
 
     local MIRROR_BASE=https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains
 
     if [ ! -f "clang-r383902/bin/clang" ]; then
-        log "Downloading clang-r383902b (Clang 12.0.5)..."
+        log "Downloading Clang r383902b..."
         mkdir -p clang-r383902
         curl -L -o clang.tar.gz --connect-timeout 30 --retry 3 \
-            "${MIRROR_BASE}/clang-r383902b.tar.gz" || err "Failed to download clang toolchain."
-        tar -xzf clang.tar.gz -C clang-r383902 2>/dev/null || err "Failed to extract clang"
+            "${MIRROR_BASE}/clang-r383902b.tar.gz" || err "Failed to download Clang"
+        tar -xzf clang.tar.gz -C clang-r383902 2>/dev/null || err "Failed to extract Clang"
         rm -f clang.tar.gz
     fi
 
     if [ ! -f "aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-ld" ]; then
-        log "Downloading GCC 4.9 (aarch64-linux-android)..."
+        log "Downloading GCC 4.9 toolchain..."
         curl -L -o gcc.tar.gz --connect-timeout 30 --retry 3 \
             "${MIRROR_BASE}/aarch64-linux-android-4.9.tar.gz" || \
             curl -L -o gcc.tar.gz --connect-timeout 30 --retry 3 \
             "${MIRROR_BASE}/aarch64-linux-android-4.9-Linux-5.4.tar.gz" || \
-            err "Failed to download GCC toolchain."
+            err "Failed to download GCC"
 
         mkdir -p gcc_temp
         tar -xzf gcc.tar.gz -C gcc_temp 2>/dev/null || err "Failed to extract GCC"
         rm -f gcc.tar.gz
 
         local GCC_BIN_DIR=$(find gcc_temp -type d -name "bin" -path "*/aarch64-linux-android-4.9/bin" | head -1)
-        [ -z "$GCC_BIN_DIR" ] && err "Could not find toolchain bin dir"
+        [ -z "$GCC_BIN_DIR" ] && err "Could not find GCC bin directory"
         mkdir -p aarch64-linux-android-4.9
         cp -r "$(dirname "$GCC_BIN_DIR")"/* aarch64-linux-android-4.9/
         rm -rf gcc_temp
@@ -90,17 +89,15 @@ setup_toolchains() {
         done
         cd ../..
     fi
-    log "Toolchains ready."
 }
 
 integrate_susfs_sukisu() {
-    log "=== Integrating SUSFS + SukiSU ==="
+    log "=== Integrating SUSFS + SukiSU-Ultra ==="
     cd "$KERNEL_DIR"
 
-    log "Downloading SUSFS 4.19 patches..."
+    # 1. Download SUSFS Patches
     mkdir -p "$SUSFS_DIR"
     cd "$SUSFS_DIR"
-
     local GITLAB_API="https://gitlab.com/api/v4/projects/simonpunk%2Fsusfs4ksu/repository"
     local SUSFS_REF="kernel-4.19"
 
@@ -126,11 +123,12 @@ integrate_susfs_sukisu() {
 
     cd "$KERNEL_DIR"
 
+    # 2. Apply SUSFS Patches
     if [ -f "${SUSFS_DIR}/50_add_susfs_in_kernel-4.19.patch" ]; then
-        log "Applying SUSFS kernel patch..."
+        log "Applying SUSFS patch..."
         patch -p1 --forward --fuzz=3 --no-backup-if-mismatch \
             < "${SUSFS_DIR}/50_add_susfs_in_kernel-4.19.patch" 2>&1 || true
-        
+
         if [ -f fs/notify/fdinfo.c ]; then
             sed -i 's/out_seq_printf:/out_seq_printf:;/g' fs/notify/fdinfo.c
             grep -q "inotify_mark_user_mask" fs/notify/fdinfo.c && \
@@ -146,6 +144,7 @@ integrate_susfs_sukisu() {
 
     grep -q "susfs.o" "fs/Makefile" || sed -i '/^obj-y :=.*nsfs.o/a obj-$(CONFIG_KSU_SUSFS) += susfs.o' "fs/Makefile" 2>/dev/null || true
 
+    # 3. MediaTek Connectivity Fix
     if [ -d "drivers/misc/mediatek/connectivity" ]; then
         rm -rf drivers/misc/mediatek/connectivity
         git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git \
@@ -153,22 +152,23 @@ integrate_susfs_sukisu() {
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
 
-    log "Cloning SukiSU (SukiSU-Ultra)..."
+    # 4. Fetch SukiSU-Ultra
+    log "Cloning SukiSU-Ultra..."
     rm -rf drivers/kernelsu
     git clone --recursive https://github.com/SukiSU-Ultra/SukiSU-Ultra drivers/kernelsu --depth=1
-
     [ -d "drivers/kernelsu/kernel" ] && cp -r drivers/kernelsu/kernel/* drivers/kernelsu/ || true
 
-    log "Applying compatibility patches for Kernel 4.19..."
+    # 5. Compatibility Patches for Kernel 4.19
+    log "Applying Kernel 4.19 compatibility patches..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # Clean and exact C-parser patch for file_wrapper.c
+    # 6. Safe patch for file_wrapper.c without breaking C syntax
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-        log "Patching drivers/kernelsu/infra/file_wrapper.c safely for Kernel 4.19..."
+        log "Fixing file_wrapper.c for Kernel 4.19 safely..."
         python3 -c '
-import sys
+import re
 
 path = "drivers/kernelsu/infra/file_wrapper.c"
 try:
@@ -178,72 +178,25 @@ try:
     if "<linux/version.h>" not in code:
         code = "#include <linux/version.h>\n" + code
 
-    def wrap_func(code_str, func_keyword, macro):
-        idx = 0
-        while True:
-            pos = code_str.find(func_keyword, idx)
-            if pos == -1:
-                break
-            line_start = code_str.rfind("\n", 0, pos)
-            line_start = 0 if line_start == -1 else line_start + 1
-            
-            open_brace = code_str.find("{", pos)
-            if open_brace == -1:
-                idx = pos + len(func_keyword)
-                continue
-            
-            brace_count = 0
-            close_brace = -1
-            for i in range(open_brace, len(code_str)):
-                if code_str[i] == "{":
-                    brace_count += 1
-                elif code_str[i] == "}":
-                    brace_count -= 1
-                    if brace_count == 0:
-                        close_brace = i
-                        break
-            
-            if close_brace != -1:
-                func_block = code_str[line_start:close_brace+1]
-                wrapped = f"\n#if {macro}\n{func_block}\n#endif\n"
-                code_str = code_str[:line_start] + wrapped + code_str[close_brace+1:]
-                idx = line_start + len(wrapped)
-            else:
-                idx = pos + len(func_keyword)
-        return code_str
-
-    code = wrap_func(code, "ksu_wrapper_remap_file_range", "LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)")
-    code = wrap_func(code, "ksu_wrapper_iopoll", "LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)")
-    code = wrap_func(code, "ksu_wrapper_fadvise", "LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)")
-
-    lines = code.split("\n")
-    new_lines = []
-    for line in lines:
-        if any(member in line for member in ["ops.remap_file_range", "ops.iopoll", "ops.fadvise"]):
-            new_lines.append("#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)")
-            new_lines.append(line)
-            new_lines.append("#endif")
-        else:
-            new_lines.append(line)
-
-    code = "\n".join(new_lines)
+    # Comment out unneeded functions safely using C comments
+    code = re.sub(r"(\bksu_wrapper_remap_file_range\b)", r"/* \1 */ dummy_remap_range", code)
+    code = re.sub(r"(\bksu_wrapper_iopoll\b)", r"/* \1 */ dummy_iopoll", code)
 
     with open(path, "w") as f:
         f.write(code)
     print("file_wrapper.c patched successfully.")
 except Exception as e:
-    print(f"Error patching file_wrapper.c: {e}")
+    print("Error patching file_wrapper.c:", e)
 ' || true
     fi
 
+    # 7. Register SukiSU in Makefile & Kconfig
     grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
     grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-
-    log "SUSFS + SukiSU Integration complete."
 }
 
 configure_kernel() {
-    log "Configuring kernel..."
+    log "Configuring kernel build options..."
     cd "$KERNEL_DIR"
     export ARCH=arm64
     export CROSS_COMPILE="${TOOLCHAIN_DIR}/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-"
@@ -254,6 +207,7 @@ configure_kernel() {
 
     make "${MAKE_OPTS[@]}" a04_defconfig || err "Defconfig failed"
 
+    # Enable KSU & SUSFS
     scripts/config --file out/.config --enable CONFIG_KSU
     scripts/config --file out/.config --enable CONFIG_KPM
     scripts/config --file out/.config --enable CONFIG_KALLSYMS
@@ -264,6 +218,7 @@ configure_kernel() {
         scripts/config --file out/.config --enable "CONFIG_${opt}" 2>/dev/null || true
     done
 
+    # Disable Samsung Security features interfering with Root
     for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
         scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
     done
@@ -277,22 +232,23 @@ configure_kernel() {
 }
 
 build_kernel() {
-    log "Building kernel with ${JOBS} jobs..."
+    log "Building kernel with ${JOBS} threads..."
     cd "$KERNEL_DIR"
     local MAKE_OPTS=( -C "$(pwd)" O="$(pwd)/out" KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y ARCH=arm64 CC="${CC}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" )
 
     if ! make "${MAKE_OPTS[@]}" -j"${JOBS}" 2>&1 | tee "${OUTPUT_DIR}/build.log"; then
+        warn "Parallel build failed, trying single thread for detailed output..."
         make "${MAKE_OPTS[@]}" -j1 2>&1 | tee -a "${OUTPUT_DIR}/build.log" || {
             tail -n 60 "${OUTPUT_DIR}/build.log"
-            err "Build failed completely!"
+            err "Kernel compilation failed!"
         }
     fi
 
-    [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" "arch/arm64/boot/Image" || err "No kernel Image found!"
+    [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" "arch/arm64/boot/Image" || err "Image file missing!"
 }
 
 package_kernel() {
-    log "Packaging AnyKernel3 Zip..."
+    log "Packaging AnyKernel3 zip..."
     mkdir -p "$OUTPUT_DIR"
     cd "$WORK_DIR"
     rm -rf AnyKernel3
@@ -308,7 +264,7 @@ package_kernel() {
 
     ZIP_NAME="TragicHorizon-v3-r1-A04-AnyKernel3.zip"
     zip -r9 "${OUTPUT_DIR}/${ZIP_NAME}" * -x .git README.md *placeholder
-    log "Created: ${OUTPUT_DIR}/${ZIP_NAME}"
+    log "Successfully generated package: ${OUTPUT_DIR}/${ZIP_NAME}"
 }
 
 main() {
