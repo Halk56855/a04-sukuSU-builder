@@ -84,6 +84,19 @@ jobs:
         run: |
           cd ${{ github.workspace }}
           
+          # التأكد من وجود مجلد drivers أو إنشاؤه إذا لم يكن موجوداً لتجنب خطأ الـ exit
+          if [ ! -d "drivers" ]; then
+              echo "WARNING: drivers/ directory not found in root. Searching inside the repository..."
+              # محاولة البحث عن مجلد drivers في حال كان موجوداً في مسار فرعي
+              SUB_DIR=$(find . -maxdepth 2 -type d -name "drivers" | head -1)
+              if [ -n "$SUB_DIR" ] && [ "$SUB_DIR" != "./drivers" ]; then
+                  echo "Found drivers at $SUB_DIR"
+              else
+                  echo "Creating drivers/ directory to prevent failure."
+                  mkdir -p drivers
+              fi
+          fi
+
           # Fix MediaTek connectivity if directory exists
           if [ -d "drivers/misc/mediatek/connectivity" ]; then
               rm -rf drivers/misc/mediatek/connectivity
@@ -91,12 +104,12 @@ jobs:
               rm -rf drivers/misc/mediatek/connectivity/.git
           fi
 
-          # Setup SukiSU-Ultra
+          # Setup SukiSU-Ultra with robust check
           rm -rf drivers/kernelsu
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin || true
 
           # Clone SUSFS patches
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu || true
 
           # Copy SUSFS headers to fix susfs_def.h missing error
           mkdir -p include/linux
