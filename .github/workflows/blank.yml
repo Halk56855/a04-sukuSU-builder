@@ -23,7 +23,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu bc git wget curl zip python3 bison flex libssl-dev
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu bc git wget curl zip python3 bison flex libssl-dev lld llvm
 
       - name: Clone Kernel Source
         run: |
@@ -85,7 +85,7 @@ jobs:
               patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch || true
           fi
 
-          # Setup SukiSU-Ultra after applying SUSFS
+          # Setup SukiSU-Ultra
           rm -rf drivers/kernelsu
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin || true
 
@@ -103,7 +103,10 @@ jobs:
           
           export ARCH=arm64
           
-          # GCC & Clang configuration alignment
+          # Include Clang bin directory in PATH so ld.lld can be located
+          CLANG_BIN="${{ github.workspace }}/toolchains/clang-r383902/bin"
+          export PATH="$CLANG_BIN:$PATH"
+          
           GCC_BIN="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-android-"
           if [ -f "${GCC_BIN}gcc" ]; then
               export CROSS_COMPILE="$GCC_BIN"
@@ -111,7 +114,7 @@ jobs:
               export CROSS_COMPILE="aarch64-linux-gnu-"
           fi
           
-          export CC="${{ github.workspace }}/toolchains/clang-r383902/bin/clang"
+          export CC="$CLANG_BIN/clang"
           export CLANG_TRIPLE="aarch64-linux-android-"
           JOBS=$(nproc --all)
           
