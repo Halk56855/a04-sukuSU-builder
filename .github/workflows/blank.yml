@@ -13,12 +13,18 @@ jobs:
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 8192
-          swap-size-mb: 4096
+          root-reserve-mb: 0
+          swap-size-mb: 2048
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
+
+      - name: Disk Cleanup & Diagnostics
+        run: |
+          sudo rm -rf /var/lib/apt/lists/* /tmp/* || true
+          sudo apt-get clean || true
+          df -h .
 
       - name: Install Dependencies
         run: |
@@ -72,6 +78,14 @@ jobs:
               rm -rf drivers/misc/mediatek/connectivity/.git
           fi
 
+          # Disable -Werror globally in all Makefiles to prevent deprecation warnings from breaking build
+          find . -name Makefile -exec sed -i 's/-Werror//g' {} + || true
+
+          # Fix C prototypes error in mm/zsmalloc.c
+          if [ -f "mm/zsmalloc.c" ]; then
+              sed -i 's/try_schedule_zs_compact()/try_schedule_zs_compact(void)/g' mm/zsmalloc.c || true
+          fi
+
           # Clone & Apply SUSFS Patch First
           git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu || true
 
@@ -103,7 +117,7 @@ jobs:
           
           export ARCH=arm64
           
-          # Include Clang bin directory in PATH so ld.lld can be located
+          # Include Clang bin directory in PATH
           CLANG_BIN="${{ github.workspace }}/toolchains/clang-r383902/bin"
           export PATH="$CLANG_BIN:$PATH"
           
@@ -154,7 +168,7 @@ jobs:
           scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
           
           make O=out olddefconfig || true
-          make O=out -j"${JOBS}"
+          make O=out -j"${JOBS}" KCFLAGS="-Wno-error -Wno-strict-prototypes -Wno-error=strict-prototypes"
           
           [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" arch/arm64/boot/Image
 
