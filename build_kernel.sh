@@ -23,7 +23,6 @@ log()  { echo -e "${GREEN}[+]${NC} $1"; }
 warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[x]${NC} $1"; exit 1; }
 
-# Helper to URL-encode paths for GitLab API
 encoded_src() {
   local src="$1"
   local out=""
@@ -40,9 +39,6 @@ encoded_src() {
   printf '%s' "$out"
 }
 
-# ==============================================================================
-# Step 1: Download kernel source
-# ==============================================================================
 download_kernel_source() {
     if [ -f "$KERNEL_DIR/Makefile" ]; then
         log "Kernel source already exists at $KERNEL_DIR"
@@ -56,9 +52,6 @@ download_kernel_source() {
     log "Source cloned."
 }
 
-# ==============================================================================
-# Step 2: Setup toolchains (clang + GCC 4.9)
-# ==============================================================================
 setup_toolchains() {
     log "Setting up toolchains..."
     mkdir -p "$TOOLCHAIN_DIR"
@@ -66,67 +59,46 @@ setup_toolchains() {
 
     local MIRROR_BASE=https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains
 
-    # --- Clang ---
     if [ ! -f "clang-r383902/bin/clang" ]; then
         log "Downloading clang-r383902b (Clang 12.0.5)..."
         mkdir -p clang-r383902
         curl -L -o clang.tar.gz --connect-timeout 30 --retry 3 \
-            "${MIRROR_BASE}/clang-r383902b.tar.gz" || {
-            warn "Mirror failed, trying alternative..."
-            curl -L -o clang.tar.gz --connect-timeout 30 --retry 3 \
-                "${MIRROR_BASE}/clang-r383902b.tar.gz" || {
-                err "Failed to download clang toolchain."
-            }
-        }
+            "${MIRROR_BASE}/clang-r383902b.tar.gz" || err "Failed to download clang toolchain."
         tar -xzf clang.tar.gz -C clang-r383902 2>/dev/null || err "Failed to extract clang"
         rm -f clang.tar.gz
     fi
 
-    # --- GCC 4.9 aarch64 ---
     if [ ! -f "aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-ld" ]; then
         log "Downloading GCC 4.9 (aarch64-linux-android)..."
         curl -L -o gcc.tar.gz --connect-timeout 30 --retry 3 \
-            "${MIRROR_BASE}/aarch64-linux-android-4.9.tar.gz" || {
-            warn "Standard GCC tarball failed, trying Linux-5.4 variant..."
+            "${MIRROR_BASE}/aarch64-linux-android-4.9.tar.gz" || \
             curl -L -o gcc.tar.gz --connect-timeout 30 --retry 3 \
-                "${MIRROR_BASE}/aarch64-linux-android-4.9-Linux-5.4.tar.gz" || {
-                err "Failed to download GCC toolchain."
-            }
-        }
+            "${MIRROR_BASE}/aarch64-linux-android-4.9-Linux-5.4.tar.gz" || \
+            err "Failed to download GCC toolchain."
 
         mkdir -p gcc_temp
         tar -xzf gcc.tar.gz -C gcc_temp 2>/dev/null || err "Failed to extract GCC"
         rm -f gcc.tar.gz
 
         local GCC_BIN_DIR=$(find gcc_temp -type d -name "bin" -path "*/aarch64-linux-android-4.9/bin" | head -1)
-        if [ -z "$GCC_BIN_DIR" ]; then
-            err "Could not find toolchain bin dir"
-        fi
+        [ -z "$GCC_BIN_DIR" ] && err "Could not find toolchain bin dir"
         mkdir -p aarch64-linux-android-4.9
         cp -r "$(dirname "$GCC_BIN_DIR")"/* aarch64-linux-android-4.9/
         rm -rf gcc_temp
 
         cd aarch64-linux-android-4.9/bin
         for f in aarch64-linux-android-*; do
-            if [ -f "$f" ] && [ ! -e "${f/android-/androidkernel-}" ]; then
-                ln -sf "$f" "${f/android-/androidkernel-}"
-            fi
+            [ -f "$f" ] && [ ! -e "${f/android-/androidkernel-}" ] && ln -sf "$f" "${f/android-/androidkernel-}"
         done
         cd ../..
-        log "Created aarch64-linux-androidkernel-* symlinks"
     fi
-
     log "Toolchains ready."
 }
 
-# ==============================================================================
-# Step 3: Integrate SUSFS + SukiSU
-# ==============================================================================
 integrate_susfs_sukisu() {
     log "=== Integrating SUSFS + SukiSU ==="
     cd "$KERNEL_DIR"
 
-    # Step 3a: Download SUSFS patches
     log "Downloading SUSFS 4.19 patches..."
     mkdir -p "$SUSFS_DIR"
     cd "$SUSFS_DIR"
@@ -136,7 +108,7 @@ integrate_susfs_sukisu() {
 
     curl -L --connect-timeout 30 --retry 3 \
         "${GITLAB_API}/files/kernel_patches%2F50_add_susfs_in_kernel-4.19.patch/raw?ref=${SUSFS_REF}" \
-        -o "50_add_susfs_in_kernel-4.19.patch" || warn "Failed to download main SUSFS patch"
+        -o "50_add_susfs_in_kernel-4.19.patch" || true
 
     local SUSFS_FILES=(
         "kernel_patches/fs/susfs.c:fs/susfs.c"
@@ -147,17 +119,15 @@ integrate_susfs_sukisu() {
     for entry in "${SUSFS_FILES[@]}"; do
         local src="${entry%%:*}"
         local dst="${entry#*:}"
-        local dir=$(dirname "$dst")
-        mkdir -p "$dir"
+        mkdir -p "$(dirname "$dst")"
         local encoded=$(encoded_src "$src")
         curl -L --connect-timeout 30 --retry 3 \
             "${GITLAB_API}/files/${encoded}/raw?ref=${SUSFS_REF}" \
-            -o "$dst" || warn "Failed to download $dst"
+            -o "$dst" || true
     done
 
     cd "$KERNEL_DIR"
 
-    # Step 3b: Apply SUSFS kernel patch
     if [ -f "${SUSFS_DIR}/50_add_susfs_in_kernel-4.19.patch" ]; then
         log "Applying SUSFS kernel patch..."
         patch -p1 --forward --fuzz=3 --no-backup-if-mismatch \
@@ -165,66 +135,50 @@ integrate_susfs_sukisu() {
         
         if [ -f fs/notify/fdinfo.c ]; then
             sed -i 's/out_seq_printf:/out_seq_printf:;/g' fs/notify/fdinfo.c
-            if grep -q "inotify_mark_user_mask" fs/notify/fdinfo.c; then
-                if ! grep -q "#define inotify_mark_user_mask" fs/notify/fdinfo.c; then
-                    sed -i '/#include <linux\/exportfs.h>/a #define inotify_mark_user_mask(mark) (mark->mask \& IN_ALL_EVENTS)' fs/notify/fdinfo.c
-                fi
-            fi
+            grep -q "inotify_mark_user_mask" fs/notify/fdinfo.c && \
+            ! grep -q "#define inotify_mark_user_mask" fs/notify/fdinfo.c && \
+            sed -i '/#include <linux\/exportfs.h>/a #define inotify_mark_user_mask(mark) (mark->mask \& IN_ALL_EVENTS)' fs/notify/fdinfo.c
         fi
     fi
 
-    # Step 3c: Copy SUSFS source files
     [ -f "${SUSFS_DIR}/fs/susfs.c" ] && cp "${SUSFS_DIR}/fs/susfs.c" "fs/susfs.c" && chmod 644 "fs/susfs.c"
     [ -f "${SUSFS_DIR}/fs/sus_su.c" ] && cp "${SUSFS_DIR}/fs/sus_su.c" "fs/sus_su.c" && chmod 644 "fs/sus_su.c"
     [ -f "${SUSFS_DIR}/include/linux/susfs.h" ] && cp "${SUSFS_DIR}/include/linux/susfs.h" "include/linux/susfs.h" && chmod 644 "include/linux/susfs.h"
     [ -f "${SUSFS_DIR}/include/linux/susfs_def.h" ] && cp "${SUSFS_DIR}/include/linux/susfs_def.h" "include/linux/susfs_def.h" && chmod 644 "include/linux/susfs_def.h"
 
-    if ! grep -q "susfs.o" "fs/Makefile"; then
-        sed -i '/^obj-y :=.*nsfs.o/a obj-$(CONFIG_KSU_SUSFS) += susfs.o' "fs/Makefile" 2>/dev/null || true
-    fi
+    grep -q "susfs.o" "fs/Makefile" || sed -i '/^obj-y :=.*nsfs.o/a obj-$(CONFIG_KSU_SUSFS) += susfs.o' "fs/Makefile" 2>/dev/null || true
 
-    # Step 3d: Replace MTK connectivity module
     if [ -d "drivers/misc/mediatek/connectivity" ]; then
-        log "Replacing mtk connectivity module..."
         rm -rf drivers/misc/mediatek/connectivity
         git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git \
             -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
 
-    # Step 3e: Integrate SukiSU
     log "Cloning SukiSU (SukiSU-Ultra)..."
     rm -rf drivers/kernelsu
     git clone --recursive https://github.com/SukiSU-Ultra/SukiSU-Ultra drivers/kernelsu --depth=1
 
-    if [ -d "drivers/kernelsu/kernel" ]; then
-        cp -r drivers/kernelsu/kernel/* drivers/kernelsu/ || true
-    fi
+    [ -d "drivers/kernelsu/kernel" ] && cp -r drivers/kernelsu/kernel/* drivers/kernelsu/ || true
 
-    # Fix compatibility macros for Kernel 4.19
-    log "Applying robust compatibility patches for Kernel 4.19..."
+    log "Applying compatibility patches for Kernel 4.19..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # Safe compatibility handling for missing struct members in 4.19
+    # Safe compatibility handling for Kernel 4.19 missing struct members
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-        sed -i 's/p->ops.fadvise = fp->f_op->fadvise ? ksu_wrapper_fadvise : NULL;//g' drivers/kernelsu/infra/file_wrapper.c || true
+        sed -i '/p->ops\.iopoll/d' drivers/kernelsu/infra/file_wrapper.c || true
+        sed -i '/p->ops\.fadvise/d' drivers/kernelsu/infra/file_wrapper.c || true
+        sed -i '/p->ops\.remap_file_range/d' drivers/kernelsu/infra/file_wrapper.c || true
     fi
 
-    if ! grep -q "kernelsu" drivers/Makefile; then
-        echo 'obj-y += kernelsu/' >> drivers/Makefile
-    fi
-    if ! grep -q "kernelsu" drivers/Kconfig; then
-        sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-    fi
+    grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
+    grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
     log "SUSFS + SukiSU Integration complete."
 }
 
-# ==============================================================================
-# Step 4: Configure kernel
-# ==============================================================================
 configure_kernel() {
     log "Configuring kernel..."
     cd "$KERNEL_DIR"
@@ -235,22 +189,18 @@ configure_kernel() {
 
     local MAKE_OPTS=( -C "$(pwd)" O="$(pwd)/out" KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y ARCH=arm64 CC="${CC}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" )
 
-    log "Using a04_defconfig..."
     make "${MAKE_OPTS[@]}" a04_defconfig || err "Defconfig failed"
 
-    log "Enabling SukiSU & KPM..."
     scripts/config --file out/.config --enable CONFIG_KSU
     scripts/config --file out/.config --enable CONFIG_KPM
     scripts/config --file out/.config --enable CONFIG_KALLSYMS
     scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
     scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
 
-    log "Enabling SUSFS hiding features..."
     for opt in KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_OPEN_REDIRECT KSU_SUSFS_SUS_SU SPOOF_UNAME KSU_SUSFS_ENFORCE_SUSFS KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS KSU_SUSFS_SUS_OVERLAYFS; do
         scripts/config --file out/.config --enable "CONFIG_${opt}" 2>/dev/null || true
     done
 
-    log "Disabling Samsung security modules..."
     for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
         scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
     done
@@ -261,77 +211,51 @@ configure_kernel() {
     scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
 
     make "${MAKE_OPTS[@]}" olddefconfig 2>/dev/null || true
-    log "Kernel configured."
 }
 
-# ==============================================================================
-# Step 5: Build the kernel
-# ==============================================================================
 build_kernel() {
     log "Building kernel with ${JOBS} jobs..."
     cd "$KERNEL_DIR"
     local MAKE_OPTS=( -C "$(pwd)" O="$(pwd)/out" KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y ARCH=arm64 CC="${CC}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" )
 
     if ! make "${MAKE_OPTS[@]}" -j"${JOBS}" 2>&1 | tee "${OUTPUT_DIR}/build.log"; then
-        warn "First build attempt failed, retrying with single thread to catch exact error..."
         make "${MAKE_OPTS[@]}" -j1 2>&1 | tee -a "${OUTPUT_DIR}/build.log" || {
-            echo "=================== ERROR TRACE FOUND ==================="
-            grep -i -C 5 "error:" "${OUTPUT_DIR}/build.log" || tail -n 60 "${OUTPUT_DIR}/build.log"
-            echo "========================================================="
-            err "Build failed completely! Check the error above."
+            tail -n 60 "${OUTPUT_DIR}/build.log"
+            err "Build failed completely!"
         }
     fi
 
-    if [ -f "out/arch/arm64/boot/Image" ]; then
-        cp "out/arch/arm64/boot/Image" "arch/arm64/boot/Image"
-        log "Build successful!"
-    else
-        err "No kernel Image found in out/arch/arm64/boot/!"
-    fi
+    [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" "arch/arm64/boot/Image" || err "No kernel Image found!"
 }
 
-# ==============================================================================
-# Step 6: Package outputs with AnyKernel3
-# ==============================================================================
 package_kernel() {
     log "Packaging AnyKernel3 Zip..."
     mkdir -p "$OUTPUT_DIR"
-    
     cd "$WORK_DIR"
     rm -rf AnyKernel3
     git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
 
-    if [ -f "${KERNEL_DIR}/out/arch/arm64/boot/Image.gz-dtb" ]; then
-        cp "${KERNEL_DIR}/out/arch/arm64/boot/Image.gz-dtb" AnyKernel3/
-    elif [ -f "${KERNEL_DIR}/out/arch/arm64/boot/Image.gz" ]; then
-        cp "${KERNEL_DIR}/out/arch/arm64/boot/Image.gz" AnyKernel3/
-    elif [ -f "${KERNEL_DIR}/out/arch/arm64/boot/Image" ]; then
-        cp "${KERNEL_DIR}/out/arch/arm64/boot/Image" AnyKernel3/
-    else
-        err "Could not find compiled kernel Image!"
-    fi
+    for img in "out/arch/arm64/boot/Image.gz-dtb" "out/arch/arm64/boot/Image.gz" "out/arch/arm64/boot/Image"; do
+        [ -f "${KERNEL_DIR}/${img}" ] && cp "${KERNEL_DIR}/${img}" AnyKernel3/ && break
+    done
 
     cd AnyKernel3
-
     sed -i 's/block=auto/block=\/dev\/block\/by-name\/boot/g' anykernel.sh || true
     sed -i 's/is_slot_device=1/is_slot_device=0/g' anykernel.sh || true
 
     ZIP_NAME="TragicHorizon-v3-r1-A04-AnyKernel3.zip"
     zip -r9 "${OUTPUT_DIR}/${ZIP_NAME}" * -x .git README.md *placeholder
-
     log "Created: ${OUTPUT_DIR}/${ZIP_NAME}"
 }
 
 main() {
     mkdir -p "$OUTPUT_DIR"
-    log "=== SukiSU + AnyKernel3 Builder for SM-A045F ==="
     download_kernel_source
     setup_toolchains
     integrate_susfs_sukisu
     configure_kernel
     build_kernel
     package_kernel
-    log "BUILD COMPLETE"
 }
 
 main "$@"
