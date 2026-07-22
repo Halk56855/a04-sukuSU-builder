@@ -4,7 +4,7 @@ set -u
 set -o pipefail
 
 # ==============================================================================
-# ReSukiSU (Built-in + Manual Hooks) Kernel Builder for Samsung Galaxy A04
+# ReSukiSU Kernel Builder for Samsung Galaxy A04 (SM-A045F)
 # Kernel Version: 4.19 (mt6765)
 # Packaging: AnyKernel3 Zip
 # ==============================================================================
@@ -60,27 +60,27 @@ integrate_resukisu() {
     log "=== Integrating ReSukiSU ==="
     cd "$KERNEL_DIR"
 
+    # 1. إصلاح وحدة الاتصال الخاصة بمعالجات MediaTek
     if [ -d "drivers/misc/mediatek/connectivity" ]; then
         rm -rf drivers/misc/mediatek/connectivity
         git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
 
+    # 2. إزالة أي بقايا سابقة لتنفيذ تثبيت نظيف
     rm -rf drivers/kernelsu
-    log "Running official ReSukiSU setup script..."
-    curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s builtin || {
-        log "Falling back to direct git clone for ReSukiSU..."
-        git clone --recursive https://github.com/ReSukiSU/ReSukiSU drivers/kernelsu --depth=1
-        [ -d "drivers/kernelsu/kernel" ] && cp -r drivers/kernelsu/kernel/* drivers/kernelsu/ || true
-        grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
-        grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-    }
 
+    # 3. دمج ReSukiSU عبر السكريبت الرسمي المباشر
+    log "Adding ReSukiSU to kernel source tree..."
+    curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+
+    # 4. تطبيق إصلاحات التوافقية الخاصة بنواة Linux 4.19
     log "Applying Kernel 4.19 compatibility patches..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
+    # 5. معالجة وتجاوز الدوال غير المدعومة في file_wrapper.c
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
         python3 -c '
 import re
@@ -108,7 +108,7 @@ configure_kernel() {
 
     make "${MAKE_OPTS[@]}" a04_defconfig
 
-    # تفعيل خيارات KSU و Manual Hooks كما هو موضح بالتوثيق
+    # تفعيل خيارات ReSukiSU المطلوبة بالكامل
     scripts/config --file out/.config --enable CONFIG_KSU
     scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
     scripts/config --file out/.config --enable CONFIG_KPM
@@ -116,7 +116,7 @@ configure_kernel() {
     scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
     scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
 
-    # تعطيل حماية سامسونج
+    # تعطيل آليات حماية سامسونج (Samsung Security) التي تمنع الروت
     for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
         scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
     done
