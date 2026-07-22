@@ -12,12 +12,11 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils-aarch64-linux-gnu
+        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils binutils-aarch64-linux-gnu
 
     - name: Setup Proton Clang
       run: |
         git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$HOME/proton-clang"
-        echo "$HOME/proton-clang/bin" >> $GITHUB_PATH
 
     - name: Clone Kernel Source
       run: |
@@ -34,15 +33,24 @@ jobs:
     - name: Build Kernel
       run: |
         cd kernel-source
+        
+        # ضبط مسارات النظام لمنع تعارض ld الخاصة بـ proton-clang مع النظام
+        export PATH="/usr/bin:/bin:$HOME/proton-clang/bin:$PATH"
+        export LD_LIBRARY_PATH="$HOME/proton-clang/lib:$LD_LIBRARY_PATH"
+        
+        # متغيّرات البناء للنواة والأدوات
         export ARCH=arm64
         export SUBARCH=arm64
         export CC=clang
         export HOSTCC=gcc
         export HOSTCXX=g++
+        export LD=/usr/bin/ld
+        export HOSTLD=/usr/bin/ld
         export CROSS_COMPILE=aarch64-linux-gnu-
-        export LD_LIBRARY_PATH="$HOME/proton-clang/lib:$LD_LIBRARY_PATH"
-        make O=out HOSTCC=gcc HOSTCXX=g++ a04_defconfig
-        make O=out HOSTCC=gcc HOSTCXX=g++ -j$(nproc)
+
+        # تنفيذ البناء
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld a04_defconfig
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld -j$(nproc)
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
