@@ -205,6 +205,7 @@ integrate_susfs_sukisu() {
     log "Fixing macro compatibilities for Kernel 4.19..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
+    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
     if ! grep -q "kernelsu" drivers/Makefile; then
         echo 'obj-y += kernelsu/' >> drivers/Makefile
