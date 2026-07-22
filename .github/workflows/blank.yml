@@ -7,12 +7,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Workflow Repository
         uses: actions/checkout@v4
-        with:
-          repository: DaniTheSillyFem/kernel_samsung_a04
-          ref: linux-4.19.y
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@master
@@ -29,53 +25,66 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu bc git wget curl zip python3 bison flex libssl-dev
 
-      - name: Setup Toolchains
+      - name: Clone Kernel Source
         run: |
+          set -euo pipefail
+          KERNEL_DIR="${{ github.workspace }}/kernel-src"
+          rm -rf "$KERNEL_DIR"
+          echo "Cloning Samsung A04 kernel source..."
+          git clone --depth=1 https://github.com/DaniTheSillyFem/kernel_samsung_a04.git -b linux-4.19.y "$KERNEL_DIR"
+
+      - name: Setup Toolchains Robustly
+        run: |
+          set -euo pipefail
           mkdir -p toolchains
 
-          # 1. Download Clang
-          mkdir -p toolchains/clang-r383902
-          curl -L -o clang.tar.gz https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902b.tar.gz
-          tar -xzf clang.tar.gz -C toolchains/clang-r383902 2>/dev/null
-          rm -f clang.tar.gz
+          # 1. Setup Clang
+          CLANG_URL="https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902b.tar.gz"
+          CLANG_DIR="${{ github.workspace }}/toolchains/clang-r383902"
+          rm -rf "$CLANG_DIR" clang.tar.gz tmp_clang
+          
+          curl -L -o clang.tar.gz "$CLANG_URL"
+          mkdir -p tmp_clang
+          tar -xzf clang.tar.gz -C tmp_clang
+          
+          TOPDIR=$(ls tmp_clang | head -n 1 || true)
+          if [ -n "$TOPDIR" ] && [ -d "tmp_clang/$TOPDIR/bin" ]; then
+              mkdir -p "$CLANG_DIR"
+              mv tmp_clang/$TOPDIR/* "$CLANG_DIR/"
+          else
+              mkdir -p "$CLANG_DIR"
+              tar -xzf clang.tar.gz -C "$CLANG_DIR" --strip-components=1 || true
+          fi
+          rm -rf tmp_clang clang.tar.gz
 
-          if [ ! -d "toolchains/clang-r383902/bin" ]; then
-              echo "ERROR: Clang extraction failed"
+          if [ ! -d "$CLANG_DIR/bin" ]; then
+              echo "ERROR: Clang extraction failed!"
+              ls -la toolchains || true
               exit 1
           fi
 
-          # 2. Clone AOSP GCC 4.9 Toolchain
+          # 2. Setup GCC 4.9 Toolchain
+          GCC_DIR="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9"
           echo "Cloning GCC 4.9 Toolchain..."
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git toolchains/aarch64-linux-android-4.9
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git "$GCC_DIR" || true
 
-          # 3. Verify 'bin' directory existence
-          if [ ! -d "toolchains/aarch64-linux-android-4.9/bin" ]; then
-              echo "ERROR: GCC bin directory not found"
-              exit 1
-          fi
-
-          # 4. Create required symlinks for aarch64-linux-androidkernel-*
-          cd toolchains/aarch64-linux-android-4.9/bin
-          for f in aarch64-linux-android-*; do
-              if [ -f "$f" ]; then
-                  target="${f/aarch64-linux-android-/aarch64-linux-androidkernel-}"
-                  ln -sf "$f" "$target"
-              fi
-          done
-
-          if [ ! -f "aarch64-linux-androidkernel-gcc" ]; then
-              echo "ERROR: GCC symlink creation failed"
-              exit 1
+          if [ -d "$GCC_DIR/bin" ]; then
+              cd "$GCC_DIR/bin"
+              for f in aarch64-linux-android-*; do
+                  if [ -f "$f" ]; then
+                      target="${f/aarch64-linux-android-/aarch64-linux-androidkernel-}"
+                      ln -sf "$f" "$target"
+                  fi
+              done
+          else
+              echo "WARNING: GCC bin directory not found! Will fallback to system cross-compiler."
           fi
 
       - name: Integrate SUSFS & SukiSU-Ultra
         run: |
-          cd ${{ github.workspace }}
-          
-          if [ ! -d "drivers" ]; then
-              mkdir -p drivers
-          fi
+          cd ${{ github.workspace }}/kernel-src
 
+          mkdir -p drivers
           if [ -d "drivers/misc/mediatek/connectivity" ]; then
               rm -rf drivers/misc/mediatek/connectivity
               git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
@@ -103,36 +112,50 @@ jobs:
 
       - name: Build Kernel
         run: |
-          cd ${{ github.workspace }}
+          set -euo pipefail
+          KERNEL_DIR="${{ github.workspace }}/kernel-src"
+          cd "$KERNEL_DIR"
+          
           export ARCH=arm64
           
-          export CROSS_COMPILE="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-"
+          # Prefer local GCC if valid executable exists, otherwise fallback to system compiler
+          GCC_BIN="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-gcc"
+          if [ -x "$GCC_BIN" ]; then
+              echo "Using cloned GCC toolchain"
+              export CROSS_COMPILE="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-"
+          else
+              echo "Using system cross-compiler prefix: aarch64-linux-gnu-"
+              export CROSS_COMPILE="aarch64-linux-gnu-"
+          fi
+          
           export CC="${{ github.workspace }}/toolchains/clang-r383902/bin/clang"
           export CLANG_TRIPLE="aarch64-linux-gnu-"
-          
           JOBS=$(nproc --all)
           
-          # 1. Search specifically in arch/arm64/configs first
+          # Explicit and fallback lookup for defconfig
           DEFCONFIG_PATH=""
           if [ -d "arch/arm64/configs" ]; then
-              DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*a04*" -o -name "*defconfig*" -o -name "*mt6765*" \) | head -1)
+              DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*a04*" -o -name "*defconfig*" -o -name "*mt6765*" \) 2>/dev/null | head -1 || true)
           fi
           
-          # 2. Fallback search anywhere in arch directory
           if [ -z "$DEFCONFIG_PATH" ]; then
-              DEFCONFIG_PATH=$(find arch -type f -name "*defconfig*" | head -1)
+              DEFCONFIG_PATH=$(find arch -type f -name "*defconfig*" 2>/dev/null | head -1 || true)
           fi
 
-          # If still not found, list available files to aid debug
           if [ -z "$DEFCONFIG_PATH" ]; then
-              echo "ERROR: No defconfig file found!"
-              echo "Listing files in arch/arm64/configs if present:"
-              ls -la arch/arm64/configs/ 2>/dev/null || true
+              echo "ERROR: No defconfig file found in kernel source: $KERNEL_DIR"
+              echo "Repository root listing:"
+              ls -la .
+              echo "arch/ listing (if exists):"
+              ls -la arch || true
               exit 1
           fi
 
-          # Convert full path to relative path expected by make (e.g., vendor/a04_defconfig)
-          DEFCONFIG_TARGET=$(echo "$DEFCONFIG_PATH" | sed 's|arch/arm64/configs/||')
+          if [[ "$DEFCONFIG_PATH" == *"arch/arm64/configs/"* ]]; then
+              DEFCONFIG_TARGET=$(echo "$DEFCONFIG_PATH" | sed 's|arch/arm64/configs/||')
+          else
+              DEFCONFIG_TARGET=$(basename "$DEFCONFIG_PATH")
+          fi
           
           echo "Found defconfig path: $DEFCONFIG_PATH"
           echo "Passing to make: $DEFCONFIG_TARGET"
@@ -165,8 +188,13 @@ jobs:
           cd ${{ github.workspace }}
           git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
           
-          for img in "out/arch/arm64/boot/Image.gz-dtb" "out/arch/arm64/boot/Image.gz" "out/arch/arm64/boot/Image"; do
-              [ -f "$img" ] && cp "$img" AnyKernel3/ && break
+          KERNEL_DIR="${{ github.workspace }}/kernel-src"
+          for img in "$KERNEL_DIR/out/arch/arm64/boot/Image.gz-dtb" "$KERNEL_DIR/out/arch/arm64/boot/Image.gz" "$KERNEL_DIR/out/arch/arm64/boot/Image"; do
+              if [ -f "$img" ]; then
+                  echo "Copying kernel image: $img"
+                  cp "$img" AnyKernel3/
+                  break
+              fi
           done
           
           cd AnyKernel3
