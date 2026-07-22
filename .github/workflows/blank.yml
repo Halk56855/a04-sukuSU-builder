@@ -25,14 +25,16 @@ jobs:
     - name: Integrate ReSukiSU
       run: |
         cd kernel-source
-        # استنساخ ReSukiSU مباشرة إلى مجلد drivers/kernelsu
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
-        
-        # إضافة إعدادات التجميع إلى Makefile و Kconfig
+        # استنساخ ReSukiSU ونقل ملفات النواة إلى drivers/kernelsu
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git temp_ksu
+        mv temp_ksu/kernel drivers/kernelsu
+        rm -rf temp_ksu
+
+        # إضافة التوجيهات إلى Makefile و Kconfig
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
         
-        # تفعيل CONFIG_KSU في ملف الإعدادات
+        # تفعيل CONFIG_KSU في defconfig
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig || true
 
     - name: Build Kernel
