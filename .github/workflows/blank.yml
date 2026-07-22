@@ -39,24 +39,47 @@ jobs:
           tar -xzf clang.tar.gz -C toolchains/clang-r383902 2>/dev/null
           rm -f clang.tar.gz
 
-          # Clone GCC 4.9
-          curl -L -o gcc.tar.gz https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/aarch64-linux-android-4.9.tar.gz || true
-          mkdir -p toolchains/gcc_temp
-          tar -xzf gcc.tar.gz -C toolchains/gcc_temp 2>/dev/null || true
-          rm -f gcc.tar.gz
-          GCC_BIN_DIR=$(find toolchains/gcc_temp -type d -name "bin" -path "*/aarch64-linux-android-4.9/bin" | head -1)
-          if [ -n "$GCC_BIN_DIR" ]; then
-              mkdir -p toolchains/aarch64-linux-android-4.9
-              cp -r "$(dirname "$GCC_BIN_DIR")"/* toolchains/aarch64-linux-android-4.9/
+          # Verify Clang extraction
+          if [ ! -d "toolchains/clang-r383902/bin" ]; then
+              echo "ERROR: Clang extraction failed"
+              exit 1
           fi
+
+          # Clone GCC 4.9
+          curl -L -o gcc.tar.gz https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/aarch64-linux-android-4.9.tar.gz
+          mkdir -p toolchains/gcc_temp
+          tar -xzf gcc.tar.gz -C toolchains/gcc_temp 2>/dev/null
+          rm -f gcc.tar.gz
+
+          # Verify GCC extraction and find bin directory
+          GCC_BIN_DIR=$(find toolchains/gcc_temp -type d -name "bin" | head -1)
+          if [ -z "$GCC_BIN_DIR" ]; then
+              echo "ERROR: GCC bin directory not found after extraction"
+              ls -la toolchains/gcc_temp/
+              exit 1
+          fi
+
+          mkdir -p toolchains/aarch64-linux-android-4.9
+          cp -r "$(dirname "$GCC_BIN_DIR")"/* toolchains/aarch64-linux-android-4.9/
           rm -rf toolchains/gcc_temp
+
+          # Create symlinks
           cd toolchains/aarch64-linux-android-4.9/bin
           for f in aarch64-linux-android-*; do
               [ -f "$f" ] && [ ! -e "${f/android-/androidkernel-}" ] && ln -sf "$f" "${f/android-/androidkernel-}"
           done
 
+          # Verify toolchain setup
+          if [ ! -f "aarch64-linux-androidkernel-gcc" ]; then
+              echo "ERROR: GCC symlink creation failed"
+              ls -la
+              exit 1
+          fi
+
       - name: Integrate SUSFS & SukiSU-Ultra
         run: |
+          cd ${{ github.workspace }}
+          
           # Fix MediaTek connectivity if directory exists
           if [ -d "drivers/misc/mediatek/connectivity" ]; then
               rm -rf drivers/misc/mediatek/connectivity
@@ -88,6 +111,7 @@ jobs:
 
       - name: Build Kernel
         run: |
+          cd ${{ github.workspace }}
           export ARCH=arm64
           export CROSS_COMPILE="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-"
           export CC="${{ github.workspace }}/toolchains/clang-r383902/bin/clang"
