@@ -10,7 +10,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
+          repository: DaniTheSillyFem/kernel_samsung_a04
           ref: linux-4.19.y
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@master
