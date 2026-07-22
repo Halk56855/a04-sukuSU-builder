@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           mkdir -p toolchains
 
-          # 1. Setup Clang
+          # 1. Robust Clang Extraction
           CLANG_URL="https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902b.tar.gz"
           CLANG_DIR="${{ github.workspace }}/toolchains/clang-r383902"
           rm -rf "$CLANG_DIR" clang.tar.gz tmp_clang
@@ -53,15 +53,23 @@ jobs:
           mkdir -p tmp_clang
           tar -xzf clang.tar.gz -C tmp_clang
           
-          TOPDIR=$(ls tmp_clang | head -n 1 || true)
-          if [ -n "$TOPDIR" ] && [ -d "tmp_clang/$TOPDIR/bin" ]; then
-              mkdir -p "$CLANG_DIR"
-              mv tmp_clang/$TOPDIR/* "$CLANG_DIR/"
+          mkdir -p "$CLANG_DIR"
+          if ls tmp_clang/*/bin/clang 1>/dev/null 2>&1; then
+              cp -r tmp_clang/*/* "$CLANG_DIR/" 2>/dev/null || true
+          elif [ -f "tmp_clang/bin/clang" ]; then
+              cp -r tmp_clang/* "$CLANG_DIR/"
           else
-              mkdir -p "$CLANG_DIR"
+              echo "Warning: Extraction fallback"
               tar -xzf clang.tar.gz -C "$CLANG_DIR" --strip-components=1 || true
           fi
           rm -rf tmp_clang clang.tar.gz
+
+          # Verify Clang Existence
+          if [ -f "$CLANG_DIR/bin/clang" ]; then
+              echo "Clang successfully installed at $CLANG_DIR/bin/clang"
+          else
+              echo "Error: Clang binary missing!" && exit 1
+          fi
 
           # 2. Setup GCC Toolchain
           GCC_DIR="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9"
@@ -78,7 +86,7 @@ jobs:
               rm -rf drivers/misc/mediatek/connectivity/.git
           fi
 
-          # Disable -Werror globally in all Makefiles to prevent deprecation warnings from breaking build
+          # Disable -Werror globally in all Makefiles
           find . -name Makefile -exec sed -i 's/-Werror//g' {} + || true
 
           # Fix C prototypes error in mm/zsmalloc.c
@@ -86,7 +94,7 @@ jobs:
               sed -i 's/try_schedule_zs_compact()/try_schedule_zs_compact(void)/g' mm/zsmalloc.c || true
           fi
 
-          # Clone & Apply SUSFS Patch First
+          # Clone & Apply SUSFS Patch
           git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu || true
 
           mkdir -p include/linux
@@ -117,7 +125,7 @@ jobs:
           
           export ARCH=arm64
           
-          # Include Clang bin directory in PATH
+          # Path export
           CLANG_BIN="${{ github.workspace }}/toolchains/clang-r383902/bin"
           export PATH="$CLANG_BIN:$PATH"
           
@@ -147,12 +155,10 @@ jobs:
               DEFCONFIG_TARGET=$(basename "$DEFCONFIG_PATH")
           fi
 
-          make O=out "$DEFCONFIG_TARGET"
+          make O=out "$DEFCONFIG_TARGET" CC="$CLANG_BIN/clang"
           
-          # Disable treating compiler warnings as errors
+          # Config adjustments
           scripts/config --file out/.config --disable CONFIG_CC_WERROR || true
-          
-          # Enable KSU & SUSFS
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KPM
           scripts/config --file out/.config --enable CONFIG_KALLSYMS
@@ -170,7 +176,7 @@ jobs:
           scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-SUSFS-A04"
           scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
           
-          make O=out olddefconfig || true
+          make O=out olddefconfig CC="$CLANG_BIN/clang" || true
           make O=out -j"${JOBS}" KCFLAGS="-w" CC="$CLANG_BIN/clang"
           
           [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" arch/arm64/boot/Image
