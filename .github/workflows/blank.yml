@@ -44,7 +44,7 @@ jobs:
               exit 1
           fi
 
-          # 2. Clone Reliable AOSP GCC 4.9 Toolchain
+          # 2. Clone AOSP GCC 4.9 Toolchain
           echo "Cloning GCC 4.9 Toolchain..."
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git toolchains/aarch64-linux-android-4.9
 
@@ -63,7 +63,6 @@ jobs:
               fi
           done
 
-          # Verify symlink creation
           if [ ! -f "aarch64-linux-androidkernel-gcc" ]; then
               echo "ERROR: GCC symlink creation failed"
               exit 1
@@ -113,19 +112,32 @@ jobs:
           
           JOBS=$(nproc --all)
           
-          # Dynamic search for defconfig file across arch directory
-          DEFCONFIG_PATH=$(find arch -type f -name "*defconfig" 2>/dev/null | head -1)
-          
-          if [ -z "$DEFCONFIG_PATH" ]; then
-              echo "ERROR: No defconfig file found in repository!"
-              exit 1
+          # 1. Search specifically in arch/arm64/configs first
+          DEFCONFIG_PATH=""
+          if [ -d "arch/arm64/configs" ]; then
+              DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*a04*" -o -name "*defconfig*" -o -name "*mt6765*" \) | head -1)
           fi
           
-          DEFCONFIG=$(basename "$DEFCONFIG_PATH")
-          echo "Found defconfig path: $DEFCONFIG_PATH"
-          echo "Using defconfig name: $DEFCONFIG"
+          # 2. Fallback search anywhere in arch directory
+          if [ -z "$DEFCONFIG_PATH" ]; then
+              DEFCONFIG_PATH=$(find arch -type f -name "*defconfig*" | head -1)
+          fi
+
+          # If still not found, list available files to aid debug
+          if [ -z "$DEFCONFIG_PATH" ]; then
+              echo "ERROR: No defconfig file found!"
+              echo "Listing files in arch/arm64/configs if present:"
+              ls -la arch/arm64/configs/ 2>/dev/null || true
+              exit 1
+          fi
+
+          # Convert full path to relative path expected by make (e.g., vendor/a04_defconfig)
+          DEFCONFIG_TARGET=$(echo "$DEFCONFIG_PATH" | sed 's|arch/arm64/configs/||')
           
-          make O=out "$DEFCONFIG"
+          echo "Found defconfig path: $DEFCONFIG_PATH"
+          echo "Passing to make: $DEFCONFIG_TARGET"
+
+          make O=out "$DEFCONFIG_TARGET"
           
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KPM
