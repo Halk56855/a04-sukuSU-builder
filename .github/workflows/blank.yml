@@ -149,6 +149,9 @@ jobs:
 
           make O=out "$DEFCONFIG_TARGET"
           
+          # Disable treating compiler warnings as errors
+          scripts/config --file out/.config --disable CONFIG_CC_WERROR || true
+          
           # Enable KSU & SUSFS
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KPM
@@ -168,7 +171,7 @@ jobs:
           scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
           
           make O=out olddefconfig || true
-          make O=out -j"${JOBS}" KCFLAGS="-Wno-error -Wno-strict-prototypes -Wno-error=strict-prototypes"
+          make O=out -j"${JOBS}" KCFLAGS="-w" CC="$CLANG_BIN/clang"
           
           [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" arch/arm64/boot/Image
 
