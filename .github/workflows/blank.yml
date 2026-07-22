@@ -25,20 +25,24 @@ jobs:
     - name: Integrate ReSukiSU
       run: |
         cd kernel-source
-        git submodule add https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
+        # استنساخ ReSukiSU مباشرة إلى مجلد drivers/kernelsu
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
+        
+        # إضافة إعدادات التجميع إلى Makefile و Kconfig
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+        
+        # تفعيل CONFIG_KSU في ملف الإعدادات
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig || true
 
     - name: Build Kernel
       run: |
         cd kernel-source
         
-        # ضبط مسارات النظام لمنع تعارض ld الخاصة بـ proton-clang مع النظام
+        # ضبط مسارات النظام وأدوات الربط (Linker)
         export PATH="/usr/bin:/bin:$HOME/proton-clang/bin:$PATH"
         export LD_LIBRARY_PATH="$HOME/proton-clang/lib:$LD_LIBRARY_PATH"
         
-        # متغيّرات البناء للنواة والأدوات
         export ARCH=arm64
         export SUBARCH=arm64
         export CC=clang
@@ -48,7 +52,6 @@ jobs:
         export HOSTLD=/usr/bin/ld
         export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # تنفيذ البناء
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld a04_defconfig
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld -j$(nproc)
 
