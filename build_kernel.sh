@@ -201,13 +201,16 @@ integrate_susfs_sukisu() {
         cp -r drivers/kernelsu/kernel/* drivers/kernelsu/ || true
     fi
 
-    # Fix compatibility for Kernel 4.19
-    log "Fixing macro compatibilities for Kernel 4.19..."
+    # Fix compatibility macros for Kernel 4.19
+    log "Applying robust compatibility patches for Kernel 4.19..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
-    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/remap_file_range/s/^/\/\//g' {} + || true
-    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/iopoll/s/^/\/\//g' {} + || true
+
+    # Safe compatibility handling for missing struct members in 4.19
+    if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
+        sed -i 's/p->ops.fadvise = fp->f_op->fadvise ? ksu_wrapper_fadvise : NULL;//g' drivers/kernelsu/infra/file_wrapper.c || true
+    fi
 
     if ! grep -q "kernelsu" drivers/Makefile; then
         echo 'obj-y += kernelsu/' >> drivers/Makefile
