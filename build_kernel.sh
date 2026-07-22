@@ -60,29 +60,34 @@ integrate_sukisu() {
     log "=== Integrating SukiSU-Ultra (Builtin Mode) ==="
     cd "$KERNEL_DIR"
 
-    # 1. إصلاح وحدة الاتصال الخاصة بمعالجات MediaTek
+    # 1. إصلاح وحدة الاتصال لمعالجات MediaTek
     if [ -d "drivers/misc/mediatek/connectivity" ]; then
         rm -rf drivers/misc/mediatek/connectivity
         git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
 
-    # 2. تنظيف المجلدات القديمة
+    # 2. تنظيف أي مجلد قديم لـ kernelsu
     rm -rf drivers/kernelsu
 
-    # 3. تشغيل سكريبت الإعداد الرسمي لفرع Builtin
+    # 3. تشغيل أمر الدمج الرسمي المباشر بوضع builtin
     log "Running SukiSU-Ultra official setup script..."
     curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
 
-    # 4. تطبيق إصلاحات التوافقية لنواة Linux 4.19
+    # 4. إصلاحات التوافقية لنواة Linux 4.19
     log "Applying Kernel 4.19 compatibility patches..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # 5. معالجة دوال file_wrapper.c لنواة 4.19
+    # 5. تعطيل استدعاءات SUSFS لمنع خطأ الملف المفقود
+    log "Disabling SUSFS includes..."
+    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/susfs.h>|// #include <linux/susfs.h>|g' {} + || true
+    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include "susfs.h"|// #include "susfs.h"|g' {} + || true
+
+    # 6. معالجة ملف file_wrapper.c لنواة 4.19
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-        log "Patching file_wrapper.c for 4.19 API compatibility..."
+        log "Patching file_wrapper.c for Kernel 4.19 API..."
         python3 -c '
 import re
 path = "drivers/kernelsu/infra/file_wrapper.c"
@@ -119,7 +124,7 @@ configure_kernel() {
 
     make "${MAKE_OPTS[@]}" a04_defconfig
 
-    # تفعيل الخيارات المطلوبة المذكورة في التوثيق (KPM و KALLSYMS لأجهزة Non-GKI)
+    # تفعيل الخيارات المطلوبة (KPM, KALLSYMS, وغيرها)
     scripts/config --file out/.config --enable CONFIG_KSU
     scripts/config --file out/.config --enable CONFIG_KPM
     scripts/config --file out/.config --enable CONFIG_KALLSYMS
