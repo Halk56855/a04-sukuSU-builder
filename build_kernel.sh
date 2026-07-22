@@ -5,10 +5,8 @@ set -o pipefail
 
 # ==============================================================================
 # SukiSU + SUSFS Builder for Samsung Galaxy A04 (SM-A045F) -> AnyKernel3
-# Based on: rsuntk-oss/android_kernel_samsung_a04m (mt6765)
-# Kernel base: 4.19.191 | Clang: r383902b (12.0.5)
-# Root Solution: SukiSU (SukiSU-Ultra)
-# Output: AnyKernel3 Zip File
+# Target: Kernel 4.19.191 (mt6765)
+# Root Solution: SukiSU-Ultra
 # ==============================================================================
 
 WORK_DIR="$(pwd)"
@@ -166,11 +164,32 @@ integrate_susfs_sukisu() {
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # Safe compatibility handling for Kernel 4.19 missing struct members
+    # Fix 4.19 incompatibility in file_wrapper.c directly
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-        sed -i '/p->ops\.iopoll/d' drivers/kernelsu/infra/file_wrapper.c || true
-        sed -i '/p->ops\.fadvise/d' drivers/kernelsu/infra/file_wrapper.c || true
-        sed -i '/p->ops\.remap_file_range/d' drivers/kernelsu/infra/file_wrapper.c || true
+        log "Patching drivers/kernelsu/infra/file_wrapper.c for Kernel 4.19 compatibility..."
+        # Wrap missing 5.x struct members and macros in comment blocks or dummy implementations
+        python3 -c '
+import re, sys
+
+path = "drivers/kernelsu/infra/file_wrapper.c"
+try:
+    with open(path, "r") as f:
+        content = f.read()
+
+    # Comment out statements calling iopoll or remap_file_range
+    content = re.sub(r"([^\n]*orig->f_op->iopoll[^\n]*)", r"// \1", content)
+    content = re.sub(r"([^\n]*orig->f_op->remap_file_range[^\n]*)", r"// \1", content)
+    content = re.sub(r"([^\n]*ops\.iopoll[^\n]*)", r"// \1", content)
+    content = re.sub(r"([^\n]*ops\.remap_file_range[^\n]*)", r"// \1", content)
+    content = re.sub(r"([^\n]*ops\.fadvise[^\n]*)", r"// \1", content)
+    content = re.sub(r"([^\n]*REMAP_FILE_DEDUP[^\n]*)", r"// \1", content)
+
+    with open(path, "w") as f:
+        f.write(content)
+    print("Successfully patched file_wrapper.c")
+except Exception as e:
+    print(f"Error patching file_wrapper.c: {e}")
+' || true
     fi
 
     grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
