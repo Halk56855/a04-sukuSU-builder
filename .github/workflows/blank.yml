@@ -33,7 +33,7 @@ jobs:
           echo "Cloning Samsung A04 kernel source..."
           git clone --depth=1 https://github.com/DaniTheSillyFem/kernel_samsung_a04.git -b linux-4.19.y "$KERNEL_DIR"
 
-      - name: Setup Toolchains Robustly
+      - name: Setup Toolchains
         run: |
           set -euo pipefail
           mkdir -p toolchains
@@ -57,28 +57,9 @@ jobs:
           fi
           rm -rf tmp_clang clang.tar.gz
 
-          if [ ! -d "$CLANG_DIR/bin" ]; then
-              echo "ERROR: Clang extraction failed!"
-              ls -la toolchains || true
-              exit 1
-          fi
-
-          # 2. Setup GCC 4.9 Toolchain
+          # 2. Setup GCC Toolchain
           GCC_DIR="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9"
-          echo "Cloning GCC 4.9 Toolchain..."
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git "$GCC_DIR" || true
-
-          if [ -d "$GCC_DIR/bin" ]; then
-              cd "$GCC_DIR/bin"
-              for f in aarch64-linux-android-*; do
-                  if [ -f "$f" ]; then
-                      target="${f/aarch64-linux-android-/aarch64-linux-androidkernel-}"
-                      ln -sf "$f" "$target"
-                  fi
-              done
-          else
-              echo "WARNING: GCC bin directory not found! Will fallback to system cross-compiler."
-          fi
 
       - name: Integrate SUSFS & SukiSU-Ultra
         run: |
@@ -91,18 +72,22 @@ jobs:
               rm -rf drivers/misc/mediatek/connectivity/.git
           fi
 
-          rm -rf drivers/kernelsu
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin || true
-
+          # Clone & Apply SUSFS Patch First
           git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu || true
 
           mkdir -p include/linux
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
           cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
+          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h fs/ 2>/dev/null || true
 
           if [ -f "susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch" ]; then
               patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch || true
           fi
+
+          # Setup SukiSU-Ultra after applying SUSFS
+          rm -rf drivers/kernelsu
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin || true
 
           if [ -d "drivers/kernelsu" ]; then
               find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
@@ -118,21 +103,18 @@ jobs:
           
           export ARCH=arm64
           
-          # Prefer local GCC if valid executable exists, otherwise fallback to system compiler
-          GCC_BIN="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-gcc"
-          if [ -x "$GCC_BIN" ]; then
-              echo "Using cloned GCC toolchain"
-              export CROSS_COMPILE="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-"
+          # GCC & Clang configuration alignment
+          GCC_BIN="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-android-"
+          if [ -f "${GCC_BIN}gcc" ]; then
+              export CROSS_COMPILE="$GCC_BIN"
           else
-              echo "Using system cross-compiler prefix: aarch64-linux-gnu-"
               export CROSS_COMPILE="aarch64-linux-gnu-"
           fi
           
           export CC="${{ github.workspace }}/toolchains/clang-r383902/bin/clang"
-          export CLANG_TRIPLE="aarch64-linux-gnu"
+          export CLANG_TRIPLE="aarch64-linux-android-"
           JOBS=$(nproc --all)
           
-          # Explicit and fallback lookup for defconfig
           DEFCONFIG_PATH=""
           if [ -d "arch/arm64/configs" ]; then
               DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*a04*" -o -name "*defconfig*" -o -name "*mt6765*" \) 2>/dev/null | head -1 || true)
@@ -142,32 +124,22 @@ jobs:
               DEFCONFIG_PATH=$(find arch -type f -name "*defconfig*" 2>/dev/null | head -1 || true)
           fi
 
-          if [ -z "$DEFCONFIG_PATH" ]; then
-              echo "ERROR: No defconfig file found in kernel source: $KERNEL_DIR"
-              echo "Repository root listing:"
-              ls -la .
-              echo "arch/ listing (if exists):"
-              ls -la arch || true
-              exit 1
-          fi
-
           if [[ "$DEFCONFIG_PATH" == *"arch/arm64/configs/"* ]]; then
               DEFCONFIG_TARGET=$(echo "$DEFCONFIG_PATH" | sed 's|arch/arm64/configs/||')
           else
               DEFCONFIG_TARGET=$(basename "$DEFCONFIG_PATH")
           fi
-          
-          echo "Found defconfig path: $DEFCONFIG_PATH"
-          echo "Passing to make: $DEFCONFIG_TARGET"
 
           make O=out "$DEFCONFIG_TARGET"
           
+          # Enable KSU & SUSFS
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KPM
           scripts/config --file out/.config --enable CONFIG_KALLSYMS
           scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           scripts/config --file out/.config --enable CONFIG_KSU_SUSFS || true
+          scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT || true
           
           for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
               scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
