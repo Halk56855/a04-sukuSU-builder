@@ -4,7 +4,7 @@ set -u
 set -o pipefail
 
 # ==============================================================================
-# SukiSU-Ultra (Built-in) Kernel Builder for Samsung Galaxy A04 (SM-A045F)
+# ReSukiSU (Built-in + Manual Hooks) Kernel Builder for Samsung Galaxy A04
 # Kernel Version: 4.19 (mt6765)
 # Packaging: AnyKernel3 Zip
 # ==============================================================================
@@ -56,29 +56,31 @@ setup_toolchains() {
     fi
 }
 
-integrate_sukisu() {
-    log "=== Integrating SukiSU-Ultra ==="
+integrate_resukisu() {
+    log "=== Integrating ReSukiSU ==="
     cd "$KERNEL_DIR"
 
-    # 1. إصلاح وحدة الاتصال لـ MediaTek
     if [ -d "drivers/misc/mediatek/connectivity" ]; then
         rm -rf drivers/misc/mediatek/connectivity
         git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
 
-    # 2. تثبيت SukiSU-Ultra باستخدام الأمر المباشر الرسمي (Built-in)
-    log "Running official SukiSU-Ultra builtin setup..."
     rm -rf drivers/kernelsu
-    curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+    log "Running official ReSukiSU setup script..."
+    curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s builtin || {
+        log "Falling back to direct git clone for ReSukiSU..."
+        git clone --recursive https://github.com/ReSukiSU/ReSukiSU drivers/kernelsu --depth=1
+        [ -d "drivers/kernelsu/kernel" ] && cp -r drivers/kernelsu/kernel/* drivers/kernelsu/ || true
+        grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
+        grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+    }
 
-    # 3. تطبيق إصلاحات التوافقية لنواة 4.19
     log "Applying Kernel 4.19 compatibility patches..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # 4. معالجة file_wrapper.c بأمان بدون كسر أقواس C
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
         python3 -c '
 import re
@@ -105,20 +107,23 @@ configure_kernel() {
     local MAKE_OPTS=( -C "$(pwd)" O="$(pwd)/out" KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y ARCH=arm64 CC="${CC}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" )
 
     make "${MAKE_OPTS[@]}" a04_defconfig
+
+    # تفعيل خيارات KSU و Manual Hooks كما هو موضح بالتوثيق
     scripts/config --file out/.config --enable CONFIG_KSU
+    scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
     scripts/config --file out/.config --enable CONFIG_KPM
     scripts/config --file out/.config --enable CONFIG_KALLSYMS
     scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
     scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
 
-    # تعطيل حماية سامسونج المانعة للروت
+    # تعطيل حماية سامسونج
     for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
         scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
     done
 
     scripts/config --file out/.config --enable CONFIG_SECURITY_SELINUX_DEVELOP || true
     scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE || true
-    scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-Ultra-A04"
+    scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-ReSukiSU-A04"
     scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
 
     make "${MAKE_OPTS[@]}" olddefconfig 2>/dev/null || true
@@ -148,7 +153,7 @@ package_kernel() {
     sed -i 's/block=auto/block=\/dev\/block\/by-name\/boot/g' anykernel.sh || true
     sed -i 's/is_slot_device=1/is_slot_device=0/g' anykernel.sh || true
 
-    ZIP_NAME="SukiSU-Ultra-A04-Kernel.zip"
+    ZIP_NAME="ReSukiSU-A04-Kernel.zip"
     zip -r9 "${OUTPUT_DIR}/${ZIP_NAME}" * -x .git README.md *placeholder
     log "Created package: ${OUTPUT_DIR}/${ZIP_NAME}"
 }
@@ -157,7 +162,7 @@ main() {
     mkdir -p "$OUTPUT_DIR"
     download_kernel_source
     setup_toolchains
-    integrate_sukisu
+    integrate_resukisu
     configure_kernel
     build_kernel
     package_kernel
