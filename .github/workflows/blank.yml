@@ -1,28 +1,145 @@
-name: Build Samsung A04 Kernel (AnyKernel3)
+name: Build SukiSU-Ultra Kernel for Galaxy A04
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-kernel:
+  build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: linux-4.19.y
 
-      - name: Install System Dependencies
+      - name: Maximize Build Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          swap-size-mb: 4096
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Install Dependencies
         run: |
-          sudo apt update
-          sudo apt install -y git ccache flex bison libssl-dev libelf-dev bc build-essential zip curl tar python3
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu bc git wget curl zip python3 bison flex libssl-dev
 
-      - name: Run Build Script
+      - name: Setup Toolchains
         run: |
-          chmod +x build_kernel.sh
-          ./build_kernel.sh
+          mkdir -p toolchains
+          
+          # Clone Clang
+          mkdir -p toolchains/clang-r383902
+          curl -L -o clang.tar.gz https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902b.tar.gz
+          tar -xzf clang.tar.gz -C toolchains/clang-r383902 2>/dev/null
+          rm -f clang.tar.gz
 
-      - name: Upload AnyKernel3 Zip Artifact
+          # Clone GCC 4.9
+          curl -L -o gcc.tar.gz https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/aarch64-linux-android-4.9.tar.gz || true
+          mkdir -p toolchains/gcc_temp
+          tar -xzf gcc.tar.gz -C toolchains/gcc_temp 2>/dev/null || true
+          rm -f gcc.tar.gz
+          GCC_BIN_DIR=$(find toolchains/gcc_temp -type d -name "bin" -path "*/aarch64-linux-android-4.9/bin" | head -1)
+          if [ -n "$GCC_BIN_DIR" ]; then
+              mkdir -p toolchains/aarch64-linux-android-4.9
+              cp -r "$(dirname "$GCC_BIN_DIR")"/* toolchains/aarch64-linux-android-4.9/
+          fi
+          rm -rf toolchains/gcc_temp
+          cd toolchains/aarch64-linux-android-4.9/bin
+          for f in aarch64-linux-android-*; do
+              [ -f "$f" ] && [ ! -e "${f/android-/androidkernel-}" ] && ln -sf "$f" "${f/android-/androidkernel-}"
+          done
+
+      - name: Integrate SUSFS & SukiSU-Ultra
+        run: |
+          # Fix MediaTek connectivity if directory exists
+          if [ -d "drivers/misc/mediatek/connectivity" ]; then
+              rm -rf drivers/misc/mediatek/connectivity
+              git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
+              rm -rf drivers/misc/mediatek/connectivity/.git
+          fi
+
+          # Setup SukiSU-Ultra
+          rm -rf drivers/kernelsu
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+
+          # Clone SUSFS patches
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu
+
+          # Copy SUSFS headers to fix susfs_def.h missing error
+          mkdir -p include/linux
+          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
+          cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+
+          # Apply SUSFS patch for 4.19 if exists
+          if [ -f "susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch" ]; then
+              patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch || true
+          fi
+
+          # Compatibility patches for Kernel 4.19
+          find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
+          find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
+          find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
+
+      - name: Build Kernel
+        run: |
+          export ARCH=arm64
+          export CROSS_COMPILE="${{ github.workspace }}/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-"
+          export CC="${{ github.workspace }}/toolchains/clang-r383902/bin/clang"
+          export CLANG_TRIPLE="aarch64-linux-gnu-"
+          
+          JOBS=$(nproc --all)
+          
+          # البحث التلقائي عن ملف الـ defconfig المتاح في النواة
+          DEFCONFIG=$(find arch/arm64/configs -name "*defconfig" | head -1)
+          echo "Using defconfig: $DEFCONFIG"
+          
+          make O=out "$(basename "$DEFCONFIG")"
+          
+          # تفعيل خيارات الكيرنل و SukiSU / SUSFS
+          scripts/config --file out/.config --enable CONFIG_KSU
+          scripts/config --file out/.config --enable CONFIG_KPM
+          scripts/config --file out/.config --enable CONFIG_KALLSYMS
+          scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
+          scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
+          scripts/config --file out/.config --enable CONFIG_KSU_SUSFS || true
+          
+          # تعطيل قيود الحماية الخاصة بسامسونج
+          for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
+              scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
+          done
+          
+          scripts/config --file out/.config --enable CONFIG_SECURITY_SELINUX_DEVELOP || true
+          scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE || true
+          scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-SUSFS-A04"
+          scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
+          
+          make O=out olddefconfig || true
+          make O=out -j"${JOBS}"
+          
+          [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" arch/arm64/boot/Image
+
+      - name: Package Kernel (AnyKernel3)
+        run: |
+          cd ${{ github.workspace }}
+          git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3
+          
+          for img in "out/arch/arm64/boot/Image.gz-dtb" "out/arch/arm64/boot/Image.gz" "out/arch/arm64/boot/Image"; do
+              [ -f "$img" ] && cp "$img" AnyKernel3/ && break
+          done
+          
+          cd AnyKernel3
+          sed -i 's/block=auto/block=\/dev\/block\/by-name\/boot/g' anykernel.sh || true
+          sed -i 's/is_slot_device=1/is_slot_device=0/g' anykernel.sh || true
+          
+          mkdir -p ../output
+          zip -r9 ../output/SukiSU-SUSFS-A04-Kernel.zip * -x .git README.md *placeholder
+
+      - name: Upload Kernel Zip
         uses: actions/upload-artifact@v4
         with:
-          name: TragicHorizon-v3-r1-A04-AnyKernel3
+          name: SukiSU-SUSFS-A04-Kernel
           path: output/*.zip
