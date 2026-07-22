@@ -1,4 +1,4 @@
-Name: Build Samsung A04 ReSukiSU Kernel
+name: Build Samsung A04 ReSukiSU Kernel
 on:
   workflow_dispatch:
 
