@@ -1,4 +1,4 @@
-name: Build Samsung A04 ReSukiSU Kernel
+Name: Build Samsung A04 ReSukiSU Kernel
 on:
   workflow_dispatch:
 
@@ -15,9 +15,9 @@ jobs:
         sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils-aarch64-linux-gnu
 
     - name: Setup Proton Clang
-      uses: kdrag0n/setup-proton-clang@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$HOME/proton-clang"
+        echo "$HOME/proton-clang/bin" >> $GITHUB_PATH
 
     - name: Clone Kernel Source
       run: |
