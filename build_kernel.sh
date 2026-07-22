@@ -80,8 +80,8 @@ integrate_sukisu() {
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # 5. تعطيل استدعاءات SUSFS لمنع خطأ الملف المفقود
-    log "Disabling SUSFS includes..."
+    # 5. تعطيل استدعاءات SUSFS لمنع خطأ الملف المفقود (linux/susfs.h)
+    log "Disabling SUSFS includes to prevent missing header error..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/susfs.h>|// #include <linux/susfs.h>|g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include "susfs.h"|// #include "susfs.h"|g' {} + || true
 
@@ -124,14 +124,14 @@ configure_kernel() {
 
     make "${MAKE_OPTS[@]}" a04_defconfig
 
-    # تفعيل الخيارات المطلوبة (KPM, KALLSYMS, وغيرها)
+    # تفعيل الخيارات المطلوبة (KPM, KALLSYMS، وغيرها)
     scripts/config --file out/.config --enable CONFIG_KSU
     scripts/config --file out/.config --enable CONFIG_KPM
     scripts/config --file out/.config --enable CONFIG_KALLSYMS
     scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
     scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
 
-    # تعطيل حماية سامسونج
+    # تعطيل حماية سامسونج المانعة للروت
     for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
         scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
     done
