@@ -37,9 +37,12 @@ jobs:
         export ARCH=arm64
         export SUBARCH=arm64
         export CC=clang
+        export HOSTCC=gcc
+        export HOSTCXX=g++
         export CROSS_COMPILE=aarch64-linux-gnu-
-        make O=out a04_defconfig
-        make O=out -j$(nproc)
+        export LD_LIBRARY_PATH="$HOME/proton-clang/lib:$LD_LIBRARY_PATH"
+        make O=out HOSTCC=gcc HOSTCXX=g++ a04_defconfig
+        make O=out HOSTCC=gcc HOSTCXX=g++ -j$(nproc)
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
