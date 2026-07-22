@@ -164,29 +164,73 @@ integrate_susfs_sukisu() {
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # Fix 4.19 incompatibility in file_wrapper.c directly
+    # Clean and exact C-parser patch for file_wrapper.c
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-        log "Patching drivers/kernelsu/infra/file_wrapper.c for Kernel 4.19 compatibility..."
-        # Wrap missing 5.x struct members and macros in comment blocks or dummy implementations
+        log "Patching drivers/kernelsu/infra/file_wrapper.c safely for Kernel 4.19..."
         python3 -c '
-import re, sys
+import sys
 
 path = "drivers/kernelsu/infra/file_wrapper.c"
 try:
     with open(path, "r") as f:
-        content = f.read()
+        code = f.read()
 
-    # Comment out statements calling iopoll or remap_file_range
-    content = re.sub(r"([^\n]*orig->f_op->iopoll[^\n]*)", r"// \1", content)
-    content = re.sub(r"([^\n]*orig->f_op->remap_file_range[^\n]*)", r"// \1", content)
-    content = re.sub(r"([^\n]*ops\.iopoll[^\n]*)", r"// \1", content)
-    content = re.sub(r"([^\n]*ops\.remap_file_range[^\n]*)", r"// \1", content)
-    content = re.sub(r"([^\n]*ops\.fadvise[^\n]*)", r"// \1", content)
-    content = re.sub(r"([^\n]*REMAP_FILE_DEDUP[^\n]*)", r"// \1", content)
+    if "<linux/version.h>" not in code:
+        code = "#include <linux/version.h>\n" + code
+
+    def wrap_func(code_str, func_keyword, macro):
+        idx = 0
+        while True:
+            pos = code_str.find(func_keyword, idx)
+            if pos == -1:
+                break
+            line_start = code_str.rfind("\n", 0, pos)
+            line_start = 0 if line_start == -1 else line_start + 1
+            
+            open_brace = code_str.find("{", pos)
+            if open_brace == -1:
+                idx = pos + len(func_keyword)
+                continue
+            
+            brace_count = 0
+            close_brace = -1
+            for i in range(open_brace, len(code_str)):
+                if code_str[i] == "{":
+                    brace_count += 1
+                elif code_str[i] == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        close_brace = i
+                        break
+            
+            if close_brace != -1:
+                func_block = code_str[line_start:close_brace+1]
+                wrapped = f"\n#if {macro}\n{func_block}\n#endif\n"
+                code_str = code_str[:line_start] + wrapped + code_str[close_brace+1:]
+                idx = line_start + len(wrapped)
+            else:
+                idx = pos + len(func_keyword)
+        return code_str
+
+    code = wrap_func(code, "ksu_wrapper_remap_file_range", "LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)")
+    code = wrap_func(code, "ksu_wrapper_iopoll", "LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)")
+    code = wrap_func(code, "ksu_wrapper_fadvise", "LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)")
+
+    lines = code.split("\n")
+    new_lines = []
+    for line in lines:
+        if any(member in line for member in ["ops.remap_file_range", "ops.iopoll", "ops.fadvise"]):
+            new_lines.append("#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)")
+            new_lines.append(line)
+            new_lines.append("#endif")
+        else:
+            new_lines.append(line)
+
+    code = "\n".join(new_lines)
 
     with open(path, "w") as f:
-        f.write(content)
-    print("Successfully patched file_wrapper.c")
+        f.write(code)
+    print("file_wrapper.c patched successfully.")
 except Exception as e:
     print(f"Error patching file_wrapper.c: {e}")
 ' || true
