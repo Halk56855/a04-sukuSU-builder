@@ -33,7 +33,7 @@ jobs:
         run: |
           mkdir -p toolchains
 
-          # 1. Download Clang Toolchain
+          # 1. Download Clang
           mkdir -p toolchains/clang-r383902
           curl -L -o clang.tar.gz https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902b.tar.gz
           tar -xzf clang.tar.gz -C toolchains/clang-r383902 2>/dev/null
@@ -44,25 +44,21 @@ jobs:
               exit 1
           fi
 
-          # 2. Download Pre-built AOSP GCC 4.9 Tarball via curl
-          echo "Downloading AOSP GCC 4.9 Toolchain archive..."
-          mkdir -p toolchains/aarch64-linux-android-4.9
-          curl -L -o gcc.tar.gz https://android.googlesource.com/+archive/refs/heads/master/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9.tar.gz
-          tar -xzf gcc.tar.gz -C toolchains/aarch64-linux-android-4.9
-          rm -f gcc.tar.gz
+          # 2. Clone Google AOSP GCC 4.9 (Reliable git clone)
+          echo "Cloning AOSP GCC 4.9 Toolchain..."
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth=1 --single-branch toolchains/aarch64-linux-android-4.9
 
-          # 3. Locate actual 'bin' directory dynamically
+          # 3. Find GCC bin directory dynamically
           GCC_BIN_DIR=$(find toolchains/aarch64-linux-android-4.9 -type d -name "bin" | head -1)
-          
+
           if [ -z "$GCC_BIN_DIR" ]; then
-              echo "ERROR: Could not find 'bin' directory in GCC archive"
-              ls -la toolchains/aarch64-linux-android-4.9
+              echo "ERROR: Could not find 'bin' directory in GCC repository"
               exit 1
           fi
 
           echo "Found GCC bin directory at: $GCC_BIN_DIR"
 
-          # 4. Create symlinks for aarch64-linux-androidkernel-*
+          # 4. Create required symlinks for aarch64-linux-androidkernel-*
           cd "$GCC_BIN_DIR"
           for f in aarch64-linux-android-*; do
               if [ -f "$f" ]; then
