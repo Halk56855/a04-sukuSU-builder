@@ -63,21 +63,20 @@ jobs:
           cp -r "$(dirname "$GCC_BIN_DIR")"/* toolchains/aarch64-linux-android-4.9/
           rm -rf toolchains/gcc_temp
 
-          # Create symlinks
+          # Create symlinks for all aarch64-linux-android-* binaries
           cd toolchains/aarch64-linux-android-4.9/bin
           for f in aarch64-linux-android-*; do
-              [ -f "$f" ] && ln -sf "$f" "${f/android-/androidkernel-}"
+              if [ -f "$f" ]; then
+                  target="${f/aarch64-linux-android-/aarch64-linux-androidkernel-}"
+                  ln -sf "$f" "$target"
+              fi
           done
 
-          # Explicitly create gcc symlink if it doesn't exist
-          if [ ! -f "aarch64-linux-androidkernel-gcc" ] && [ -f "aarch64-linux-android-gcc" ]; then
-              ln -sf "aarch64-linux-android-gcc" "aarch64-linux-androidkernel-gcc"
-          fi
-
-          # Verify toolchain setup
+          # Verify gcc symlink was created
           if [ ! -f "aarch64-linux-androidkernel-gcc" ]; then
               echo "ERROR: GCC symlink creation failed"
-              ls -la
+              echo "Available files:"
+              ls -la aarch64-linux-android-*
               exit 1
           fi
 
