@@ -37,6 +37,16 @@ jobs:
         # تفعيل CONFIG_KSU في defconfig
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig || true
 
+    - name: Patch Driver Source Errors
+      run: |
+        cd kernel-source
+        # إضافة المكتبات المفقودة لملف hx9023s.c
+        if [ -f "drivers/input/hx9023_sar/hx9023s.c" ]; then
+          sed -i '1i #include <linux/i2c.h>\n#include <linux/pm_wakeup.h>' drivers/input/hx9023_sar/hx9023s.c
+          sed -i 's/for (size_t index = 0;/size_t index; for (index = 0;/g' drivers/input/hx9023_sar/hx9023s.c
+          sed -i 's/for (int i = 0;/int i; for (i = 0;/g' drivers/input/hx9023_sar/hx9023s.c
+        fi
+
     - name: Build Kernel
       run: |
         cd kernel-source
@@ -55,7 +65,7 @@ jobs:
         export CROSS_COMPILE=aarch64-linux-gnu-
 
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld a04_defconfig
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld -j$(nproc)
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld KCFLAGS="-Wno-error" -j$(nproc)
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
