@@ -44,14 +44,13 @@ jobs:
               exit 1
           fi
 
-          # 2. Clone Reliable AOSP GCC 4.9 Mirror
+          # 2. Clone Reliable AOSP GCC 4.9 Toolchain
           echo "Cloning GCC 4.9 Toolchain..."
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git toolchains/aarch64-linux-android-4.9
 
           # 3. Verify 'bin' directory existence
           if [ ! -d "toolchains/aarch64-linux-android-4.9/bin" ]; then
               echo "ERROR: GCC bin directory not found"
-              ls -la toolchains/aarch64-linux-android-4.9
               exit 1
           fi
 
@@ -67,7 +66,6 @@ jobs:
           # Verify symlink creation
           if [ ! -f "aarch64-linux-androidkernel-gcc" ]; then
               echo "ERROR: GCC symlink creation failed"
-              ls -la
               exit 1
           fi
 
@@ -115,10 +113,19 @@ jobs:
           
           JOBS=$(nproc --all)
           
-          DEFCONFIG=$(find arch/arm64/configs -name "*defconfig" | head -1)
-          echo "Using defconfig: $DEFCONFIG"
+          # Dynamic search for defconfig file across arch directory
+          DEFCONFIG_PATH=$(find arch -type f -name "*defconfig" 2>/dev/null | head -1)
           
-          make O=out "$(basename "$DEFCONFIG")"
+          if [ -z "$DEFCONFIG_PATH" ]; then
+              echo "ERROR: No defconfig file found in repository!"
+              exit 1
+          fi
+          
+          DEFCONFIG=$(basename "$DEFCONFIG_PATH")
+          echo "Found defconfig path: $DEFCONFIG_PATH"
+          echo "Using defconfig name: $DEFCONFIG"
+          
+          make O=out "$DEFCONFIG"
           
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KPM
