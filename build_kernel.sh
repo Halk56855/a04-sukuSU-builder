@@ -74,7 +74,7 @@ setup_toolchains() {
             "${MIRROR_BASE}/clang-r383902b.tar.gz" || {
             warn "Mirror failed, trying alternative..."
             curl -L -o clang.tar.gz --connect-timeout 30 --retry 3 \
-                "${MIRROR_BASE}/clang-r383902.tar.gz" || {
+                "${MIRROR_BASE}/clang-r383902b.tar.gz" || {
                 err "Failed to download clang toolchain."
             }
         }
@@ -206,6 +206,7 @@ integrate_susfs_sukisu() {
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
+    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/remap_file_range/s/^/\/\//g' {} + || true
 
     if ! grep -q "kernelsu" drivers/Makefile; then
         echo 'obj-y += kernelsu/' >> drivers/Makefile
