@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           mkdir -p toolchains
 
-          # 1. Robust Clang Extraction
+          # 1. Setup Clang Toolchain
           CLANG_URL="https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902b.tar.gz"
           CLANG_DIR="${{ github.workspace }}/toolchains/clang-r383902"
           rm -rf "$CLANG_DIR" clang.tar.gz tmp_clang
@@ -59,14 +59,12 @@ jobs:
           elif [ -f "tmp_clang/bin/clang" ]; then
               cp -r tmp_clang/* "$CLANG_DIR/"
           else
-              echo "Warning: Extraction fallback"
               tar -xzf clang.tar.gz -C "$CLANG_DIR" --strip-components=1 || true
           fi
           rm -rf tmp_clang clang.tar.gz
 
-          # Verify Clang Existence
           if [ -f "$CLANG_DIR/bin/clang" ]; then
-              echo "Clang successfully installed at $CLANG_DIR/bin/clang"
+              echo "Clang successfully setup at $CLANG_DIR/bin/clang"
           else
               echo "Error: Clang binary missing!" && exit 1
           fi
@@ -86,8 +84,8 @@ jobs:
               rm -rf drivers/misc/mediatek/connectivity/.git
           fi
 
-          # Disable -Werror globally in all Makefiles
-          find . -name Makefile -exec sed -i 's/-Werror//g' {} + || true
+          # Strip all -Werror variants from Makefiles and .mk files
+          find . \( -name Makefile -o -name "*.mk" \) -exec sed -i 's/-Werror[^ ]*//g' {} + || true
 
           # Fix C prototypes error in mm/zsmalloc.c
           if [ -f "mm/zsmalloc.c" ]; then
@@ -125,7 +123,6 @@ jobs:
           
           export ARCH=arm64
           
-          # Path export
           CLANG_BIN="${{ github.workspace }}/toolchains/clang-r383902/bin"
           export PATH="$CLANG_BIN:$PATH"
           
@@ -138,6 +135,8 @@ jobs:
           
           export CC="$CLANG_BIN/clang"
           export CLANG_TRIPLE="aarch64-linux-android-"
+          export HOSTCC=gcc
+          export HOSTCXX=g++
           JOBS=$(nproc --all)
           
           DEFCONFIG_PATH=""
@@ -155,7 +154,7 @@ jobs:
               DEFCONFIG_TARGET=$(basename "$DEFCONFIG_PATH")
           fi
 
-          make O=out "$DEFCONFIG_TARGET" CC="$CLANG_BIN/clang"
+          make O=out "$DEFCONFIG_TARGET" CC="$CLANG_BIN/clang" HOSTCC=gcc
           
           # Config adjustments
           scripts/config --file out/.config --disable CONFIG_CC_WERROR || true
@@ -176,8 +175,8 @@ jobs:
           scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-SUSFS-A04"
           scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
           
-          make O=out olddefconfig CC="$CLANG_BIN/clang" || true
-          make O=out -j"${JOBS}" KCFLAGS="-w" CC="$CLANG_BIN/clang"
+          make O=out olddefconfig CC="$CLANG_BIN/clang" HOSTCC=gcc || true
+          make O=out -j"${JOBS}" KCFLAGS="-w -Qunused-arguments" CC="$CLANG_BIN/clang" HOSTCC=gcc
           
           [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" arch/arm64/boot/Image
 
