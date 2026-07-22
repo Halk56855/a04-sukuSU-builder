@@ -33,7 +33,7 @@ jobs:
         run: |
           mkdir -p toolchains
 
-          # 1. Download Clang
+          # 1. Download Clang Toolchain
           mkdir -p toolchains/clang-r383902
           curl -L -o clang.tar.gz https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r383902b.tar.gz
           tar -xzf clang.tar.gz -C toolchains/clang-r383902 2>/dev/null
@@ -44,21 +44,25 @@ jobs:
               exit 1
           fi
 
-          # 2. Clone Google AOSP GCC 4.9 directly
-          echo "Cloning AOSP GCC 4.9 Toolchain..."
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 toolchains/aarch64-linux-android-4.9
+          # 2. Download Pre-built AOSP GCC 4.9 Tarball via curl
+          echo "Downloading AOSP GCC 4.9 Toolchain archive..."
+          mkdir -p toolchains/aarch64-linux-android-4.9
+          curl -L -o gcc.tar.gz https://android.googlesource.com/+archive/refs/heads/master/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9.tar.gz
+          tar -xzf gcc.tar.gz -C toolchains/aarch64-linux-android-4.9
+          rm -f gcc.tar.gz
 
-          # 3. Locate the actual 'bin' directory dynamically
+          # 3. Locate actual 'bin' directory dynamically
           GCC_BIN_DIR=$(find toolchains/aarch64-linux-android-4.9 -type d -name "bin" | head -1)
           
           if [ -z "$GCC_BIN_DIR" ]; then
-              echo "ERROR: Could not find 'bin' directory in GCC clone"
+              echo "ERROR: Could not find 'bin' directory in GCC archive"
+              ls -la toolchains/aarch64-linux-android-4.9
               exit 1
           fi
 
           echo "Found GCC bin directory at: $GCC_BIN_DIR"
 
-          # 4. Create symlinks for aarch64-linux-androidkernel-* inside GCC bin directory
+          # 4. Create symlinks for aarch64-linux-androidkernel-*
           cd "$GCC_BIN_DIR"
           for f in aarch64-linux-android-*; do
               if [ -f "$f" ]; then
@@ -78,37 +82,29 @@ jobs:
         run: |
           cd ${{ github.workspace }}
           
-          # Verify drivers directory exists
           if [ ! -d "drivers" ]; then
-              echo "WARNING: drivers/ directory not found in root. Creating it..."
               mkdir -p drivers
           fi
 
-          # Fix MediaTek connectivity if directory exists
           if [ -d "drivers/misc/mediatek/connectivity" ]; then
               rm -rf drivers/misc/mediatek/connectivity
               git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
               rm -rf drivers/misc/mediatek/connectivity/.git
           fi
 
-          # Setup SukiSU-Ultra
           rm -rf drivers/kernelsu
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin || true
 
-          # Clone SUSFS patches
           git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu || true
 
-          # Copy SUSFS headers
           mkdir -p include/linux
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
           cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
 
-          # Apply SUSFS patch for 4.19 if exists
           if [ -f "susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch" ]; then
               patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch || true
           fi
 
-          # Compatibility patches for Kernel 4.19
           if [ -d "drivers/kernelsu" ]; then
               find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
               find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
@@ -120,7 +116,6 @@ jobs:
           cd ${{ github.workspace }}
           export ARCH=arm64
           
-          # Find GCC bin directory dynamically for CROSS_COMPILE
           GCC_BIN_DIR=$(find ${{ github.workspace }}/toolchains/aarch64-linux-android-4.9 -type d -name "bin" | head -1)
           export CROSS_COMPILE="${GCC_BIN_DIR}/aarch64-linux-androidkernel-"
           export CC="${{ github.workspace }}/toolchains/clang-r383902/bin/clang"
