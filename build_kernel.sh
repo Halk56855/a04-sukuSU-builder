@@ -207,6 +207,7 @@ integrate_susfs_sukisu() {
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/remap_file_range/s/^/\/\//g' {} + || true
+    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/iopoll/s/^/\/\//g' {} + || true
 
     if ! grep -q "kernelsu" drivers/Makefile; then
         echo 'obj-y += kernelsu/' >> drivers/Makefile
