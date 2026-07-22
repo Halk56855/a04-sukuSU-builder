@@ -14,13 +14,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils-aarch64-linux-gnu
 
-    - name: Download Toolchain (Clang)
-      run: |
-        mkdir clang
-        cd clang
-        wget https://googlesource.com
-        tar -xf clang-r487747c.tar.gz
-        echo "$(pwd)/bin" >> $GITHUB_PATH
+    - name: Setup Proton Clang
+      uses: kdrag0n/setup-proton-clang@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Clone Kernel Source
       run: |
@@ -39,6 +36,7 @@ jobs:
         cd kernel-source
         export ARCH=arm64
         export SUBARCH=arm64
+        export CC=clang
         export CROSS_COMPILE=aarch64-linux-gnu-
         make O=out a04_defconfig
         make O=out -j$(nproc)
