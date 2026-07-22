@@ -4,7 +4,7 @@ set -u
 set -o pipefail
 
 # ==============================================================================
-# SukiSU-Ultra (Direct Git Clone) Kernel Builder for Samsung Galaxy A04 (SM-A045F)
+# SukiSU-Ultra (Builtin Mode) Kernel Builder for Samsung Galaxy A04 (SM-A045F)
 # Kernel Version: 4.19 (mt6765)
 # Packaging: AnyKernel3 Zip
 # ==============================================================================
@@ -57,7 +57,7 @@ setup_toolchains() {
 }
 
 integrate_sukisu() {
-    log "=== Integrating SukiSU-Ultra via Direct Clone ==="
+    log "=== Integrating SukiSU-Ultra (Builtin Mode) ==="
     cd "$KERNEL_DIR"
 
     # 1. إصلاح وحدة الاتصال الخاصة بمعالجات MediaTek
@@ -67,40 +67,42 @@ integrate_sukisu() {
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
 
-    # 2. إزالة أي مجلد سابق لـ KSU لتنفيذ سحب نظيف
+    # 2. تنظيف المجلدات القديمة
     rm -rf drivers/kernelsu
 
-    # 3. سحب مستودع SukiSU-Ultra مباشرة ودون استخدام setup.sh
-    log "Cloning SukiSU-Ultra directly into drivers/kernelsu..."
-    git clone --recursive https://github.com/SukiSU-Ultra/SukiSU-Ultra drivers/kernelsu --depth=1
-    
-    # نقل محتويات مجلد kernel إذا كان الهيكل يحتوي عليه
-    if [ -d "drivers/kernelsu/kernel" ]; then
-        cp -r drivers/kernelsu/kernel/* drivers/kernelsu/ || true
-    fi
+    # 3. تشغيل سكريبت الإعداد الرسمي لفرع Builtin
+    log "Running SukiSU-Ultra official setup script..."
+    curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
 
-    # 4. ربط المجلد يدوياً في Makefile و Kconfig في حال عدم وجود الربط
-    grep -q "kernelsu" drivers/Makefile || echo 'obj-y += kernelsu/' >> drivers/Makefile
-    grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-
-    # 5. تطبيق إصلاحات التوافقية الخاصة بنواة Linux 4.19
+    # 4. تطبيق إصلاحات التوافقية لنواة Linux 4.19
     log "Applying Kernel 4.19 compatibility patches..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # 6. معالجة وتجاوز الدوال غير المدعومة في file_wrapper.c لنواة 4.19
+    # 5. معالجة دوال file_wrapper.c لنواة 4.19
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
+        log "Patching file_wrapper.c for 4.19 API compatibility..."
         python3 -c '
 import re
 path = "drivers/kernelsu/infra/file_wrapper.c"
 try:
-    with open(path, "r") as f: code = f.read()
-    if "<linux/version.h>" not in code: code = "#include <linux/version.h>\n" + code
-    code = re.sub(r"(\bksu_wrapper_remap_file_range\b)", r"/* \1 */ dummy_remap_range", code)
-    code = re.sub(r"(\bksu_wrapper_iopoll\b)", r"/* \1 */ dummy_iopoll", code)
-    with open(path, "w") as f: f.write(code)
-except Exception as e: pass
+    with open(path, "r") as f:
+        code = f.read()
+
+    if "<linux/version.h>" not in code:
+        code = "#include <linux/version.h>\n" + code
+
+    code = re.sub(r"(\.iopoll\s*=)", r"// \1", code)
+    code = re.sub(r"(\.remap_file_range\s*=)", r"// \1", code)
+    code = re.sub(r"(\bREMAP_FILE_DEDUP\b)", r"0", code)
+    code = re.sub(r"(\bksu_wrapper_iopoll\b)", r"NULL", code)
+    code = re.sub(r"(\bksu_wrapper_remap_file_range\b)", r"NULL", code)
+
+    with open(path, "w") as f:
+        f.write(code)
+except Exception as e:
+    print(f"Patch error: {e}")
 ' || true
     fi
 }
@@ -117,21 +119,21 @@ configure_kernel() {
 
     make "${MAKE_OPTS[@]}" a04_defconfig
 
-    # تفعيل خيارات KSU الأساسية
+    # تفعيل الخيارات المطلوبة المذكورة في التوثيق (KPM و KALLSYMS لأجهزة Non-GKI)
     scripts/config --file out/.config --enable CONFIG_KSU
     scripts/config --file out/.config --enable CONFIG_KPM
     scripts/config --file out/.config --enable CONFIG_KALLSYMS
     scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
     scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
 
-    # تعطيل حمايات سامسونج التي المانعة للروت
+    # تعطيل حماية سامسونج
     for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
         scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
     done
 
     scripts/config --file out/.config --enable CONFIG_SECURITY_SELINUX_DEVELOP || true
     scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE || true
-    scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-Ultra-A04"
+    scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-Builtin-A04"
     scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
 
     make "${MAKE_OPTS[@]}" olddefconfig 2>/dev/null || true
@@ -161,7 +163,7 @@ package_kernel() {
     sed -i 's/block=auto/block=\/dev\/block\/by-name\/boot/g' anykernel.sh || true
     sed -i 's/is_slot_device=1/is_slot_device=0/g' anykernel.sh || true
 
-    ZIP_NAME="SukiSU-Ultra-A04-Kernel.zip"
+    ZIP_NAME="SukiSU-Builtin-A04-Kernel.zip"
     zip -r9 "${OUTPUT_DIR}/${ZIP_NAME}" * -x .git README.md *placeholder
     log "Created package: ${OUTPUT_DIR}/${ZIP_NAME}"
 }
