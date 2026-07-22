@@ -129,7 +129,7 @@ jobs:
           fi
           
           export CC="${{ github.workspace }}/toolchains/clang-r383902/bin/clang"
-          export CLANG_TRIPLE="aarch64-linux-gnu-"
+          export CLANG_TRIPLE="aarch64-linux-gnu"
           JOBS=$(nproc --all)
           
           # Explicit and fallback lookup for defconfig
