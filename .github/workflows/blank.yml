@@ -66,8 +66,13 @@ jobs:
           # Create symlinks
           cd toolchains/aarch64-linux-android-4.9/bin
           for f in aarch64-linux-android-*; do
-              [ -f "$f" ] && [ ! -e "${f/android-/androidkernel-}" ] && ln -sf "$f" "${f/android-/androidkernel-}"
+              [ -f "$f" ] && ln -sf "$f" "${f/android-/androidkernel-}"
           done
+
+          # Explicitly create gcc symlink if it doesn't exist
+          if [ ! -f "aarch64-linux-androidkernel-gcc" ] && [ -f "aarch64-linux-android-gcc" ]; then
+              ln -sf "aarch64-linux-android-gcc" "aarch64-linux-androidkernel-gcc"
+          fi
 
           # Verify toolchain setup
           if [ ! -f "aarch64-linux-androidkernel-gcc" ]; then
