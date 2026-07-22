@@ -4,7 +4,7 @@ set -u
 set -o pipefail
 
 # ==============================================================================
-# SukiSU-Ultra (Builtin Mode) Kernel Builder for Samsung Galaxy A04 (SM-A045F)
+# SukiSU-Ultra + SUSFS (Builtin Mode) Kernel Builder for Samsung Galaxy A04
 # Kernel Version: 4.19 (mt6765)
 # Packaging: AnyKernel3 Zip
 # ==============================================================================
@@ -56,40 +56,51 @@ setup_toolchains() {
     fi
 }
 
-integrate_sukisu() {
-    log "=== Integrating SukiSU-Ultra (Builtin Mode) ==="
+integrate_susfs_and_sukisu() {
+    log "=== Integrating SUSFS & SukiSU-Ultra ==="
+    cd "$WORK_DIR"
+
+    # 1. تحميل رقع SUSFS الرسمية
+    if [ ! -d "susfs4ksu" ]; then
+        log "Cloning susfs4ksu repository..."
+        git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu
+    fi
+
     cd "$KERNEL_DIR"
 
-    # 1. إصلاح وحدة الاتصال لمعالجات MediaTek
+    # 2. إصلاح وحدة الاتصال لمعالجات MediaTek
     if [ -d "drivers/misc/mediatek/connectivity" ]; then
         rm -rf drivers/misc/mediatek/connectivity
         git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity 2>/dev/null || true
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
 
-    # 2. تنظيف أي مجلد قديم لـ kernelsu
+    # 3. تنظيف أي مجلد قديم لـ kernelsu
     rm -rf drivers/kernelsu
 
-    # 3. تشغيل أمر الدمج الرسمي المباشر بوضع builtin
+    # 4. تشغيل أمر الدمج الرسمي لـ SukiSU-Ultra
     log "Running SukiSU-Ultra official setup script..."
     curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
 
-    # 4. إصلاح خطأ ترويسة susfs في ملف kernel_includes.h تلقائياً (الحل الجذري للمشكلة)
-    log "Disabling SUSFS includes in kernel_includes.h..."
-    if [ -f "drivers/kernelsu/kernel_includes.h" ]; then
-        sed -i 's|#include <linux/susfs.h>|// #include <linux/susfs.h>|g' drivers/kernelsu/kernel_includes.h
+    # 5. نسخ ملفات الترويسة الخاصة بـ SUSFS إلى مجلد include النواة لحل خطأ susfs_def.h
+    log "Copying SUSFS header files to kernel include directory..."
+    mkdir -p include/linux
+    cp -f "${WORK_DIR}/susfs4ksu/kernel_patches/include/linux/susfs.h" include/linux/ 2>/dev/null || true
+    cp -f "${WORK_DIR}/susfs4ksu/kernel_patches/include/linux/susfs_def.h" include/linux/ 2>/dev/null || true
+
+    # 6. تطبيق رقع SUSFS على النواة إذا توفرت الرقعة المناسبة للإصدار 4.19
+    if [ -d "${WORK_DIR}/susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch" ]; then
+        log "Applying SUSFS patch for Kernel 4.19..."
+        patch -p1 < "${WORK_DIR}/susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch" || true
     fi
 
-    # 5. إصلاحات التوافقية لنواة Linux 4.19
+    # 7. إصلاحات التوافقية لنواة Linux 4.19
     log "Applying Kernel 4.19 compatibility patches..."
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
     find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
 
-    # 6. تعطيل استدعاءات SUSFS العامة الأخرى
-    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include "susfs.h"|// #include "susfs.h"|g' {} + || true
-
-    # 7. معالجة ملف file_wrapper.c لنواة 4.19
+    # 8. معالجة ملف file_wrapper.c لنواة 4.19
     if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
         log "Patching file_wrapper.c for Kernel 4.19 API..."
         python3 -c '
@@ -128,21 +139,22 @@ configure_kernel() {
 
     make "${MAKE_OPTS[@]}" a04_defconfig
 
-    # تفعيل الخيارات المطلوبة (KPM, KALLSYMS، وغيرها)
+    # تفعيل الخيارات المطلوبة
     scripts/config --file out/.config --enable CONFIG_KSU
     scripts/config --file out/.config --enable CONFIG_KPM
     scripts/config --file out/.config --enable CONFIG_KALLSYMS
     scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
     scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
+    scripts/config --file out/.config --enable CONFIG_KSU_SUSFS || true
 
-    # تعطيل حماية سامسونج المانعة للروت
+    # تعطيل حماية سامسونج
     for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
         scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
     done
 
     scripts/config --file out/.config --enable CONFIG_SECURITY_SELINUX_DEVELOP || true
     scripts/config --file out/.config --disable CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE || true
-    scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-Builtin-A04"
+    scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-SUSFS-A04"
     scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
 
     make "${MAKE_OPTS[@]}" olddefconfig 2>/dev/null || true
@@ -172,7 +184,7 @@ package_kernel() {
     sed -i 's/block=auto/block=\/dev\/block\/by-name\/boot/g' anykernel.sh || true
     sed -i 's/is_slot_device=1/is_slot_device=0/g' anykernel.sh || true
 
-    ZIP_NAME="SukiSU-Builtin-A04-Kernel.zip"
+    ZIP_NAME="SukiSU-SUSFS-A04-Kernel.zip"
     zip -r9 "${OUTPUT_DIR}/${ZIP_NAME}" * -x .git README.md *placeholder
     log "Created package: ${OUTPUT_DIR}/${ZIP_NAME}"
 }
@@ -181,7 +193,7 @@ main() {
     mkdir -p "$OUTPUT_DIR"
     download_kernel_source
     setup_toolchains
-    integrate_sukisu
+    integrate_susfs_and_sukisu
     configure_kernel
     build_kernel
     package_kernel
