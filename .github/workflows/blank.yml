@@ -93,13 +93,11 @@ jobs:
           
           JOBS=$(nproc --all)
           
-          # البحث التلقائي عن ملف الـ defconfig المتاح في النواة
           DEFCONFIG=$(find arch/arm64/configs -name "*defconfig" | head -1)
           echo "Using defconfig: $DEFCONFIG"
           
           make O=out "$(basename "$DEFCONFIG")"
           
-          # تفعيل خيارات الكيرنل و SukiSU / SUSFS
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KPM
           scripts/config --file out/.config --enable CONFIG_KALLSYMS
@@ -107,7 +105,6 @@ jobs:
           scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           scripts/config --file out/.config --enable CONFIG_KSU_SUSFS || true
           
-          # تعطيل قيود الحماية الخاصة بسامسونج
           for opt in SECURITY_DEFEX PROCA FIVE UH RKP_KDP SEC_RESTRICT_ROOTING SEC_RESTRICT_SETUID SEC_RESTRICT_FORK SEC_RESTRICT_ROOTING_LOG KNOX_KAP TIMA TIMA_LKMAUTH TIMA_LKM_BLOCK TIMA_LKMAUTH_CODE_PROT INTEGRITY INTEGRITY_SIGNATURE INTEGRITY_ASYMMETRIC_KEYS INTEGRITY_TRUSTED_KEYRING INTEGRITY_AUDIT DM_VERITY; do
               scripts/config --file out/.config --disable "CONFIG_${opt}" 2>/dev/null || true
           done
