@@ -54,7 +54,7 @@ jobs:
       run: |
         cd kernel-source
 
-        # إعطاء الأولوية لأدوات النظام ومسح متغير مكتبات Proton
+        # إعداد مسارات النظام
         export PATH="/usr/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/sbin:$HOME/proton-clang/bin"
         unset LD_LIBRARY_PATH
 
@@ -66,14 +66,17 @@ jobs:
         export HOSTCXX=g++
         export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # إجبار النظام على استخدام GNU ld المباشر
-        export LD=/usr/bin/ld
+        # استخدام Cross-Linker للملفات المستهدفة و Host-Linker للأدوات المحلية
+        export LD=aarch64-linux-gnu-ld
         export HOSTLD=/usr/bin/ld
+        export AR=aarch64-linux-gnu-ar
+        export OBJCOPY=aarch64-linux-gnu-objcopy
+        export STRIP=aarch64-linux-gnu-strip
         export LDFLAGS="-Wl,--no-relax"
 
         # بناء النواة
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC="$CC" KCFLAGS="-Wno-error" a04_defconfig
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC="$CC" KCFLAGS="-Wno-error" -j$(nproc)
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" KCFLAGS="-Wno-error" a04_defconfig
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" KCFLAGS="-Wno-error" -j$(nproc)
 
     - name: Package with AnyKernel3
       run: |
