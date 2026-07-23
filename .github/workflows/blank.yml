@@ -79,7 +79,7 @@ jobs:
             '#endif' > include/linux/seccomp_types.h
         fi
 
-        # إنشاء مجلدات SELinux وإنشاء flask.h لإنهاء خطأ 'flask.h' file not found
+        # إنشاء مجلدات SELinux وإنشاء flask.h
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
@@ -147,13 +147,15 @@ jobs:
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-        # إضافة إعدادات التكوين المبدئية والخيارات المطلوبة لـ Samsung إلى defconfig
+        # إضافة إعدادات التكوين المبدئية وخيارات SPI المطلوبة لـ MediaTek/Samsung
         echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-SukiSU\"" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS_ALL=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_I2C=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_I2C_CHARDEV=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_SPI=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_SPI_MASTER=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_PM=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_PM_SLEEP=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_PM_WAKELOCK=y" >> arch/arm64/configs/a04_defconfig
@@ -182,7 +184,7 @@ jobs:
           sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$DRIVER_FILE"
         fi
 
-        # 3. إنشاء stubs ضعيفة (__weak) لمنع حدوث أخطاء Multiple Definition
+        # 3. إنشاء stubs ضعيفة (__weak) لمنع أخطاء Multiple Definition
         mkdir -p drivers/samsung
         printf '%s\n' \
           '#include <linux/types.h>' \
@@ -240,6 +242,8 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_KSU
+          ./scripts/config --file out/.config --enable CONFIG_SPI
+          ./scripts/config --file out/.config --enable CONFIG_SPI_MASTER
           ./scripts/config --file out/.config --enable CONFIG_PERSISTENT_RAM
           ./scripts/config --file out/.config --enable CONFIG_PM_WAKELOCK
           ./scripts/config --file out/.config --enable CONFIG_PSTORE
