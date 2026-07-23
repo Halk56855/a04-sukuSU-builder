@@ -14,7 +14,7 @@ jobs:
     - name: Install Build Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils binutils-aarch64-linux-gnu
+        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils binutils-aarch64-linux-gnu libc6-dev-arm64-cross libc6-dev-i386
 
     - name: Setup Proton Clang Toolchain
       run: |
@@ -58,17 +58,19 @@ jobs:
       run: |
         cd kernel-source
 
-        # إعداد متغيرات البيئة والأدوات
+        # إعداد متغيرات البيئة المسارات
         export PATH="$HOME/proton-clang/bin:/usr/bin:/bin:$PATH"
-        export LD_LIBRARY_PATH="$HOME/proton-clang/lib:$LD_LIBRARY_PATH"
+        export LD_LIBRARY_PATH="$HOME/proton-clang/lib:/usr/aarch64-linux-gnu/lib:$LD_LIBRARY_PATH"
 
         export ARCH=arm64
         export SUBARCH=arm64
         export CC=clang
         export HOSTCC=gcc
         export HOSTCXX=g++
-        export LD=/usr/bin/ld
+        
+        # استخدام linker بالنظام لبناء أدوات الـ Host لتفادي تعارض libc
         export HOSTLD=/usr/bin/ld
+        export LD=aarch64-linux-gnu-ld
         export CROSS_COMPILE=aarch64-linux-gnu-
 
         # التجميع
