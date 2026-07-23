@@ -57,10 +57,11 @@ jobs:
           sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
-        # 6. إنشاء ملفات flask.h الشاملة لـ SELinux لجميع المسارات المطلوبة
+        # 6. إنشاء المجلدات المطلوبة لترويسات SELinux
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
+        # إنشاء flask.h
         printf '%s\n' \
           '#ifndef _FLASK_H_' \
           '#ifndef _SELINUX_FLASK_H_' \
@@ -89,7 +90,43 @@ jobs:
           '#endif' \
           '#endif' > security/selinux/include/flask.h
 
+        # إنشاء av_permissions.h
+        printf '%s\n' \
+          '#ifndef _AV_PERMISSIONS_H_' \
+          '#define _AV_PERMISSIONS_H_' \
+          '' \
+          '#define PERM_FILE__READ 0' \
+          '#define PERM_FILE__WRITE 1' \
+          '' \
+          '#endif' > security/selinux/include/av_permissions.h
+
+        # إنشاء policydb.h
+        printf '%s\n' \
+          '#ifndef _POLICYDB_H_' \
+          '#define _POLICYDB_H_' \
+          '' \
+          'struct policydb { int dummy; };' \
+          'typedef struct policydb policydb_t;' \
+          '' \
+          '#endif' > security/selinux/ss/policydb.h
+
+        # إنشاء avc.h
+        printf '%s\n' \
+          '#ifndef _AVC_H_' \
+          '#define _AVC_H_' \
+          '' \
+          '#include "av_permissions.h"' \
+          '#include "policydb.h"' \
+          '' \
+          'struct avc_cache { int dummy; };' \
+          '' \
+          '#endif' > security/selinux/include/avc.h
+
+        # نسخ الترويسات إلى كافة المسارات الممكنة لتفادي أخطاء المسارات المتداخلة
         cp security/selinux/include/flask.h security/selinux/ss/flask.h
+        cp security/selinux/include/av_permissions.h security/selinux/ss/av_permissions.h
+        cp security/selinux/ss/policydb.h security/selinux/include/policydb.h
+        cp security/selinux/include/avc.h security/selinux/ss/avc.h
 
         # 7. معالجة ReSukiSU compat للحقول غير المدعومة (inode & cred security pointers)
         COMPAT_FILE="drivers/kernelsu/compat/kernel_compat.h"
