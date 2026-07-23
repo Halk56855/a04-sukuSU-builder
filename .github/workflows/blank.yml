@@ -100,12 +100,15 @@ jobs:
           '' \
           '#endif' > security/selinux/include/av_permissions.h
 
-        # إنشاء policydb.h
+        # إنشاء policydb.h مع تضمين sym_val_to_name
         printf '%s\n' \
           '#ifndef _POLICYDB_H_' \
           '#define _POLICYDB_H_' \
           '' \
-          'struct policydb { int dummy; };' \
+          'struct policydb {' \
+          '    int dummy;' \
+          '    void ***sym_val_to_name;' \
+          '};' \
           'typedef struct policydb policydb_t;' \
           '' \
           '#endif' > security/selinux/ss/policydb.h
@@ -134,6 +137,7 @@ jobs:
           echo "Patching $COMPAT_FILE for incompatible struct members..."
           sed -i 's/return inode->i_security;/return NULL; \/* Stub *\/ /g' "$COMPAT_FILE"
           sed -i 's/return cred->security;/return NULL; \/* Stub *\/ /g' "$COMPAT_FILE"
+          sed -i 's/p->sym_val_to_name\[.*\]/NULL/g' "$COMPAT_FILE"
         fi
 
         # 8. تعديل مسارات تضمين SELinux داخل ReSukiSU
@@ -196,9 +200,7 @@ jobs:
         OBJSEC_FILE="security/selinux/include/objsec.h"
         if [ -f "$OBJSEC_FILE" ]; then
           echo "Patching $OBJSEC_FILE to fix cred->security access..."
-          # Replace the problematic macro that accesses cred->security
           sed -i 's/current_cred()->security/NULL/g' "$OBJSEC_FILE"
-          # Also handle the current_security() macro itself
           sed -i 's/#define current_security.*/#define current_security() NULL/g' "$OBJSEC_FILE"
         fi
 
@@ -216,6 +218,12 @@ jobs:
           
           # Fix: no member named 'filter' in 'struct seccomp'
           sed -i 's/current->seccomp\.filter = NULL/\/* seccomp filter cleared *\//g' "$APP_PROFILE"
+        fi
+
+        COMPAT_FILE="drivers/kernelsu/compat/kernel_compat.h"
+        if [ -f "$COMPAT_FILE" ]; then
+          echo "Patching $COMPAT_FILE for sym_val_to_name compatibility..."
+          sed -i 's/return p->sym_val_to_name\[.*\];/return NULL;/g' "$COMPAT_FILE"
         fi
 
     - name: Build Kernel
