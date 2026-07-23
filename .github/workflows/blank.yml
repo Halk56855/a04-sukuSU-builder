@@ -60,7 +60,7 @@ jobs:
             'int ksu_handle_sepolicy(void) { return 0; }' > "$SEPOLICY_SRC"
         fi
 
-        # 4. إنشاء الترويسات المفقودة وتوليد flask.h الشامل المكتمل
+        # 4. إنشاء الترويسات المفقودة وتوليد flask.h المكتمل بجميع الكلاسات والأذونات
         mkdir -p include/linux
         if [ ! -f "include/linux/seccomp_types.h" ]; then
           printf '%s\n' \
@@ -79,13 +79,24 @@ jobs:
           '#define _FLASK_H_' \
           '#define _SELINUX_FLASK_H_' \
           '' \
+          '/* Security Init IDs */' \
           '#define SECINITSID_NUM 27' \
           '#define SECINITSID_KERNEL 1' \
           '#define SECINITSID_SECURITY 2' \
           '#define SECINITSID_UNLABELED 3' \
           '#define SECINITSID_INIT 4' \
           '#define SECINITSID_FILE 5' \
+          '#define SECINITSID_FILE_LABELS 6' \
+          '#define SECINITSID_INIT_LABELS 7' \
+          '#define SECINITSID_SYSADM_ROLE 8' \
+          '#define SECINITSID_OBJECT_R 9' \
+          '#define SECINITSID_ROLE 10' \
+          '#define SECINITSID_USER 11' \
+          '#define SECINITSID_KERNEL_ROLE 12' \
+          '#define SECINITSID_KERNEL_USER 13' \
+          '#define SECINITSID_ANY_SOCKET 14' \
           '' \
+          '/* Security Classes */' \
           '#define SECCLASS_SECURITY 1' \
           '#define SECCLASS_PROCESS 2' \
           '#define SECCLASS_SYSTEM 3' \
@@ -161,20 +172,44 @@ jobs:
           '#define SECCLASS_SMC_SOCKET 73' \
           '#define SECCLASS_XDP_SOCKET 74' \
           '#define SECCLASS_NETIF 75' \
-          '#define SECCLASS_NODE 76' \
-          '#define SECCLASS_BINDER 77' \
-          '#define SECCLASS_FD 78' \
-          '#define SECCLASS_PROCESS2 79' \
-          '#define SECCLASS_KERNEL_SERVICE 80' \
-          '#define SECCLASS_MEMPROTECT 81' \
-          '#define SECCLASS_CAP_USERNS 82' \
-          '#define SECCLASS_CAP2_USERNS 83' \
+          '#define SECCLASS_NETLINK 76' \
+          '#define SECCLASS_NODE 77' \
+          '#define SECCLASS_BINDER 78' \
+          '#define SECCLASS_PACKET 79' \
+          '#define SECCLASS_PEER 80' \
+          '#define SECCLASS_MSG 81' \
+          '#define SECCLASS_MSGQ 82' \
+          '#define SECCLASS_SEM 83' \
+          '#define SECCLASS_SHM 84' \
+          '#define SECCLASS_TUN_SOCKET 85' \
+          '#define SECCLASS_FD 86' \
+          '#define SECCLASS_PROCESS2 87' \
+          '#define SECCLASS_KERNEL_SERVICE 88' \
+          '#define SECCLASS_MEMPROTECT 89' \
+          '#define SECCLASS_CAP_USERNS 90' \
+          '#define SECCLASS_CAP2_USERNS 91' \
           '' \
+          '/* Permission definitions */' \
           '#define BINDER__CALL 1' \
           '#define BINDER__TRANSFER 2' \
           '#define FD__USE 1' \
           '#define NETIF__INGRESS 1' \
           '#define NODE__RECVFROM 1' \
+          '#define PACKET__FORWARD_IN 1' \
+          '#define PACKET__FORWARD_OUT 2' \
+          '#define PACKET__SEND 1' \
+          '#define PACKET__RELABELTO 1' \
+          '#define PEER__RECV 1' \
+          '#define MSG__SEND 1' \
+          '#define MSGQ__ASSOCIATE 1' \
+          '#define MSGQ__CREATE 1' \
+          '#define MSGQ__GETATTR 2' \
+          '#define MSGQ__READ 3' \
+          '#define MSGQ__SETATTR 4' \
+          '#define MSGQ__WRITE 5' \
+          '#define TUN_SOCKET__CREATE 1' \
+          '#define TUN_SOCKET__GETATTR 2' \
+          '#define TUN_SOCKET__SETATTR 3' \
           '' \
           '#endif' \
           '#endif' > security/selinux/include/flask.h
