@@ -22,7 +22,8 @@ jobs:
 
     - name: Clone Kernel Source
       run: |
-        git clone --depth=1 https://github.com/DaniTheSillyFem/kernel_samsung_a04.git kernel-source
+        # استنساخ سورس النواة الجديد مع تحديد الفرع latest-B
+        git clone -b latest-B --depth=1 https://github.com/rsuntk-oss/android_kernel_samsung_a04m.git kernel-source
 
     - name: Integrate SukiSU-Ultra & Custom Configurations
       run: |
@@ -265,7 +266,6 @@ jobs:
       run: |
         git clone --depth=1 https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
 
-        # 1. نسخ ملف النواة المجمع وتسميته Image مباشرة
         if [ -f "kernel-source/out/arch/arm64/boot/Image.gz-dtb" ]; then
           cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
         elif [ -f "kernel-source/out/arch/arm64/boot/Image.gz" ]; then
@@ -278,10 +278,8 @@ jobs:
 
         cd AnyKernel3
 
-        # 2. إزالة مجلد .git لتجنب تضمينه داخل الـ ZIP
         rm -rf .git .github
 
-        # 3. الضغط مباشرة من جذر المجلد لضمان البنية الصحيحة المباشرة
         zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * .zenflow* .gitignore 2>/dev/null || zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" *
 
     - name: Upload AnyKernel3 Package
