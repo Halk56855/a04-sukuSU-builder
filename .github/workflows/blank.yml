@@ -14,7 +14,7 @@ jobs:
     - name: Install Build Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils binutils-aarch64-linux-gnu libc6-dev-arm64-cross libc6-dev-i386 zip
+        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils binutils-aarch64-linux-gnu libc6-dev-arm64-cross libc6-dev-i386 zip python3
 
     - name: Setup Proton Clang Toolchain
       run: |
@@ -57,16 +57,25 @@ jobs:
           sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
-        # 6. تعديل مسارات تضمين SELinux داخل ReSukiSU لتشير إلى مسار النواة القياسي
+        # 6. توليد ملفات SELinux الهامة تلقائياً إذا لم تكن موجودة
+        mkdir -p security/selinux/ss
+        if [ ! -f "security/selinux/ss/flask.h" ]; then
+          echo "Generating flask.h header..."
+          python3 security/selinux/ss/genheaders.py security/selinux/ss/flask.h security/selinux/include/classmap.h || touch security/selinux/ss/flask.h
+        fi
+
+        # 7. تعديل مسارات تضمين SELinux داخل ReSukiSU
         grep -rl '#include "flask.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "flask.h"|#include <security/selinux/ss/flask.h>|g' || true
         grep -rl '#include "policydb.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "policydb.h"|#include <security/selinux/ss/policydb.h>|g' || true
 
-        # 7. ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
+        # 8. ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-        # 8. إضافة إعدادات التكوين المبدئية إلى defconfig
+        # 9. إضافة إعدادات SELinux و ReSukiSU المبدئية إلى defconfig
         echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-r1\"" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_SECURITY_SELINUX=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_SECURITY_SELINUX_BOOTPARAM=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS_ALL=y" >> arch/arm64/configs/a04_defconfig
@@ -128,13 +137,13 @@ jobs:
         export STRIP=aarch64-linux-gnu-strip
         export LDFLAGS="-Wl,--no-relax"
         
-        # إزالة مسارات include الخاصة بـ SELinux لمنع تداخل التضمينات أثناء بناء النواة
         export KCFLAGS="-Wno-error -Wno-implicit-function-declaration"
 
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
 
         if [ -f "scripts/config" ]; then
           ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-TragicHorizon-v3-r1"
+          ./scripts/config --file out/.config --enable CONFIG_SECURITY_SELINUX
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_KSU
