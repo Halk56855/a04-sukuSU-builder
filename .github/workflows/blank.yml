@@ -28,18 +28,16 @@ jobs:
       run: |
         cd kernel-source
 
-        # استنساخ ReSukiSU مؤقتاً
+        # استنساخ ReSukiSU
         git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git temp_ksu
         
-        # إنشاء المجلد الرئيسي للنواة
+        # إنشاء مجلد drivers/kernelsu ونقل ملفات النواة ومجلد git إليها
         mkdir -p drivers/kernelsu
-        
-        # نقل محتويات مجلد kernel و مجلد .git لضمان تجاوز فحص git submodule
         cp -r temp_ksu/kernel/* drivers/kernelsu/
         cp -r temp_ksu/.git drivers/kernelsu/
         rm -rf temp_ksu
 
-        # تعطيل أي فحص متزمت لـ git submodule داخل Kbuild إن وجد
+        # تعطيل فحص git submodule إن وجد
         if [ -f "drivers/kernelsu/Kbuild" ]; then
           sed -i 's/.*git submodule.*/# ignored/g' drivers/kernelsu/Kbuild
         fi
@@ -48,20 +46,31 @@ jobs:
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-        # تعيين اسم النواة المخصص والتكوينات المطلوبة
+        # تعيين التكوينات المطلوبة وتفعيل KALLSYMS_ALL
         echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-r1\"" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig || true
+        echo "CONFIG_KALLSYMS=y" >> arch/arm64/configs/a04_defconfig || true
+        echo "CONFIG_KALLSYMS_ALL=y" >> arch/arm64/configs/a04_defconfig || true
         echo "CONFIG_I2C=y" >> arch/arm64/configs/a04_defconfig || true
         echo "CONFIG_I2C_CHARDEV=y" >> arch/arm64/configs/a04_defconfig || true
         echo "CONFIG_PM=y" >> arch/arm64/configs/a04_defconfig || true
         echo "CONFIG_PM_SLEEP=y" >> arch/arm64/configs/a04_defconfig || true
         echo "CONFIG_WAKELOCK=y" >> arch/arm64/configs/a04_defconfig || true
 
-    - name: Apply Header & Driver Patches
+    - name: Apply Header, Driver & SELinux Patches
       run: |
         cd kernel-source
 
-        # 1. إزالة أي تضمين لـ wakeup_source.h واستبداله بـ pm_wakeup.h
+        # 1. تصدير sel_handle_status_ops في ملف selinuxfs.c
+        SELINUX_FILE="security/selinux/selinuxfs.c"
+        if [ -f "$SELINUX_FILE" ]; then
+          echo "Patching $SELINUX_FILE for ReSukiSU symbol export..."
+          if ! grep -q "EXPORT_SYMBOL(sel_handle_status_ops)" "$SELINUX_FILE"; then
+            echo -e "\n#include <linux/export.h>\nEXPORT_SYMBOL(sel_handle_status_ops);" >> "$SELINUX_FILE"
+          fi
+        fi
+
+        # 2. إزالة أي تضمين لـ wakeup_source.h واستبداله بـ pm_wakeup.h
         WAKELOCK_FILE="include/linux/wakelock.h"
         if [ -f "$WAKELOCK_FILE" ]; then
           echo "Patching $WAKELOCK_FILE..."
@@ -69,7 +78,7 @@ jobs:
           sed -i '1i #include <linux/pm_wakeup.h>' "$WAKELOCK_FILE"
         fi
 
-        # 2. إزالة wakeup_source.h وتعديل الحلقات في سائق hx9023s.c
+        # 3. إزالة wakeup_source.h وتعديل الحلقات في سائق hx9023s.c
         DRIVER_FILE="drivers/input/hx9023_sar/hx9023s.c"
         if [ -f "$DRIVER_FILE" ]; then
           echo "Patching $DRIVER_FILE..."
@@ -106,9 +115,11 @@ jobs:
         # إعداد التهيئة أولاً
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
 
-        # تفعيل إعدادات النظام واسم النواة
+        # تفعيل إعدادات النظام واسم النواة و KALLSYMS_ALL
         if [ -f "scripts/config" ]; then
           ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-TragicHorizon-v3-r1"
+          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
+          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_I2C
           ./scripts/config --file out/.config --enable CONFIG_PM
           ./scripts/config --file out/.config --enable CONFIG_PM_SLEEP
