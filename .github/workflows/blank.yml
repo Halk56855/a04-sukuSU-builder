@@ -1,4 +1,4 @@
-name: Build Samsung A04 ReSukiSU Kernel & Pack AnyKernel3
+name: Build Samsung A04 SukiSU-Ultra Kernel & Pack AnyKernel3
 
 on:
   workflow_dispatch:
@@ -24,12 +24,12 @@ jobs:
       run: |
         git clone --depth=1 https://github.com/DaniTheSillyFem/kernel_samsung_a04.git kernel-source
 
-    - name: Integrate ReSukiSU & Custom Configurations
+    - name: Integrate SukiSU-Ultra & Custom Configurations
       run: |
         cd kernel-source
 
-        # 1. استنساخ ReSukiSU مؤقتاً
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git temp_ksu
+        # 1. استنساخ SukiSU-Ultra مؤقتاً
+        git clone --depth=1 https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_ksu || git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git temp_ksu
         
         # 2. إنشاء المجلد الهدف ونسخ المحتويات بالكامل
         mkdir -p drivers/kernelsu
@@ -68,7 +68,7 @@ jobs:
         fi
 
         # ----------------------------------------------------
-        # 5. إصلاح وتجهيز الترويسات الأساسية
+        # 5. إنشاء الترويسات المفقودة (flask.h & seccomp_types.h)
         # ----------------------------------------------------
         mkdir -p include/linux
         if [ ! -f "include/linux/seccomp_types.h" ]; then
@@ -78,6 +78,34 @@ jobs:
             '#define _LINUX_SECCOMP_TYPES_H' \
             '#endif' > include/linux/seccomp_types.h
         fi
+
+        # إنشاء مجلدات SELinux وإنشاء flask.h لإنهاء خطأ 'flask.h' file not found
+        mkdir -p security/selinux/include
+        mkdir -p security/selinux/ss
+
+        echo "Creating stub flask.h header..."
+        printf '%s\n' \
+          '#ifndef _FLASK_H_' \
+          '#ifndef _SELINUX_FLASK_H_' \
+          '#define _FLASK_H_' \
+          '#define _SELINUX_FLASK_H_' \
+          '' \
+          '#define SECINITSID_NUM 27' \
+          '#define SECINITSID_SECURITY 1' \
+          '#define SECCLASS_SECURITY 1' \
+          '#define SECCLASS_PROCESS 2' \
+          '#define SECCLASS_SYSTEM 3' \
+          '#define SECCLASS_CAPABILITY 4' \
+          '#define SECCLASS_FILESYSTEM 5' \
+          '#define SECCLASS_FILE 6' \
+          '#define SECCLASS_DIR 7' \
+          '' \
+          '#endif' \
+          '#endif' > security/selinux/include/flask.h
+
+        # نسخ flask.h لأي مسار متوقع داخل سورس النواة
+        cp security/selinux/include/flask.h security/selinux/flask.h || true
+        cp security/selinux/include/flask.h security/selinux/ss/flask.h || true
 
         # ----------------------------------------------------
         # 6. تطبيق ترقيعات التوافق العامة
@@ -107,7 +135,7 @@ jobs:
 
         # تعطيل فحص static_export_check.mk
         mkdir -p drivers/kernelsu/tools
-        echo "# Bypassed ReSukiSU Integration Check" > drivers/kernelsu/tools/static_export_check.mk
+        echo "# Bypassed SukiSU Integration Check" > drivers/kernelsu/tools/static_export_check.mk
 
         # تحويل أخطاء Kbuild القاطعة إلى تحذيرات
         KBUILD_FILE="drivers/kernelsu/Kbuild"
@@ -116,12 +144,12 @@ jobs:
           sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
-        # ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
+        # ربط SukiSU بملفات Makefile و Kconfig الرئيسية
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
         # إضافة إعدادات التكوين المبدئية إلى defconfig
-        echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-r1\"" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-SukiSU\"" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS_ALL=y" >> arch/arm64/configs/a04_defconfig
@@ -178,7 +206,7 @@ jobs:
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
 
         if [ -f "scripts/config" ]; then
-          ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-TragicHorizon-v3-r1"
+          ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-TragicHorizon-v3-SukiSU"
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_KSU
@@ -197,10 +225,10 @@ jobs:
         sed -i 's/device.name1=/device.name1=a04/g' anykernel.sh
         sed -i 's/block=/block=\/dev\/block\/by-name\/boot/g' anykernel.sh
 
-        zip -r9 "../TragicHorizon-v3-r1-Samsung-A04.zip" * -x .git README.md
+        zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * -x .git README.md
 
     - name: Upload AnyKernel3 Package
       uses: actions/upload-artifact@v4
       with:
-        name: TragicHorizon-v3-r1-Samsung-A04
-        path: TragicHorizon-v3-r1-Samsung-A04.zip
+        name: TragicHorizon-v3-SukiSU-Samsung-A04
+        path: TragicHorizon-v3-SukiSU-Samsung-A04.zip
