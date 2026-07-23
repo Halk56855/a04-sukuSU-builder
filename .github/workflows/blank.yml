@@ -188,6 +188,9 @@ jobs:
           '#define SECCLASS_MEMPROTECT 89' \
           '#define SECCLASS_CAP_USERNS 90' \
           '#define SECCLASS_CAP2_USERNS 91' \
+          '#define SECCLASS_KEY 92' \
+          '#define SECCLASS_BPF 93' \
+          '#define SECCLASS_PERF_EVENT 94' \
           '' \
           '/* Permission definitions */' \
           '#define BINDER__CALL 1' \
@@ -210,6 +213,20 @@ jobs:
           '#define TUN_SOCKET__CREATE 1' \
           '#define TUN_SOCKET__GETATTR 2' \
           '#define TUN_SOCKET__SETATTR 3' \
+          '#define KEY__CREATE 1' \
+          '#define KEY__READ 2' \
+          '#define KEY__WRITE 3' \
+          '#define KEY__SEARCH 4' \
+          '#define BPF__MAP_CREATE 1' \
+          '#define BPF__MAP_READ 2' \
+          '#define BPF__MAP_WRITE 3' \
+          '#define BPF__PROG_LOAD 4' \
+          '#define BPF__PROG_RUN 5' \
+          '#define PERF_EVENT__OPEN 1' \
+          '#define PERF_EVENT__READ 2' \
+          '#define PERF_EVENT__WRITE 3' \
+          '#define PERF_EVENT__KERNEL 4' \
+          '#define PERF_EVENT__TRACEPOINT 5' \
           '' \
           '#endif' \
           '#endif' > security/selinux/include/flask.h
