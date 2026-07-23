@@ -54,24 +54,25 @@ jobs:
       run: |
         cd kernel-source
 
-        # إعداد متغيرات البيئة والمسارات
+        # عزل بيئة Proton Clang لمنع تداخل مسارات المترجم
         export PATH="$HOME/proton-clang/bin:/usr/bin:/bin:$PATH"
-        export LD_LIBRARY_PATH="$HOME/proton-clang/lib:/usr/aarch64-linux-gnu/lib:$LD_LIBRARY_PATH"
+        export LD_LIBRARY_PATH="$HOME/proton-clang/lib"
 
         export ARCH=arm64
         export SUBARCH=arm64
         export CC=clang
         export HOSTCC=gcc
         export HOSTCXX=g++
-        
-        # استخدام linker النظام بشكل صريح لتفادي تعارض libc مع Proton Clang
-        export HOSTLD=/usr/bin/ld
-        export LD=/usr/bin/ld
         export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # إجراء عملية التجميع مع تمرير المتغيرات المباشرة لـ make
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld a04_defconfig
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld KCFLAGS="-Wno-error" -j$(nproc)
+        # إجبار النظام على استخدام linker النظام المباشر
+        export HOSTLD=/usr/bin/ld
+        export LD=/usr/bin/ld
+        export LDFLAGS="-fuse-ld=/usr/bin/ld"
+
+        # بناء النواة مع تحديد المتغيرات صراحة لـ make
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC=clang KCFLAGS="-Wno-error" a04_defconfig
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC=clang KCFLAGS="-Wno-error" -j$(nproc)
 
     - name: Package with AnyKernel3
       run: |
