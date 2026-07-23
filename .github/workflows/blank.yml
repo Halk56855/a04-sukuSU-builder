@@ -54,25 +54,26 @@ jobs:
       run: |
         cd kernel-source
 
-        # إعداد مسارات النظام وإلغاء متغير مكتبات Proton Clang المسبب للتعارض
-        export PATH="$HOME/proton-clang/bin:/usr/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/sbin"
+        # إعطاء الأولوية لأدوات النظام ومسح متغير مكتبات Proton
+        export PATH="/usr/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/sbin:$HOME/proton-clang/bin"
         unset LD_LIBRARY_PATH
 
         export ARCH=arm64
         export SUBARCH=arm64
-        export CC=clang
+        export CC="$HOME/proton-clang/bin/clang"
+        export CXX="$HOME/proton-clang/bin/clang++"
         export HOSTCC=gcc
         export HOSTCXX=g++
         export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # استخدام GNU Linker الخاص بالنظام وتعطيل تحسينات no-relax
+        # إجبار النظام على استخدام GNU ld المباشر
         export LD=/usr/bin/ld
         export HOSTLD=/usr/bin/ld
-        export LDFLAGS="-fuse-ld=/usr/bin/ld -Wl,--no-relax"
+        export LDFLAGS="-Wl,--no-relax"
 
         # بناء النواة
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC=clang KCFLAGS="-Wno-error" a04_defconfig
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC=clang KCFLAGS="-Wno-error" -j$(nproc)
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC="$CC" KCFLAGS="-Wno-error" a04_defconfig
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC="$CC" KCFLAGS="-Wno-error" -j$(nproc)
 
     - name: Package with AnyKernel3
       run: |
