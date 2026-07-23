@@ -14,7 +14,7 @@ jobs:
     - name: Install Build Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils binutils-aarch64-linux-gnu libc6-dev-arm64-cross libc6-dev-i386 zip python3
+        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils binutils-aarch64-linux-gnu libc6-dev-arm64-cross libc6-dev-i386 zip python3 checkpolicy libsepol-dev libelf-dev libncurses-dev
 
     - name: Setup Proton Clang Toolchain
       run: |
@@ -22,7 +22,6 @@ jobs:
 
     - name: Clone Kernel Source
       run: |
-        # استنساخ سورس النواة الجديد مع تحديد الفرع latest-B
         git clone -b latest-B --depth=1 https://github.com/rsuntk-oss/android_kernel_samsung_a04m.git kernel-source
 
     - name: Integrate SukiSU-Ultra & Custom Configurations
@@ -80,11 +79,11 @@ jobs:
             '#endif' > include/linux/seccomp_types.h
         fi
 
-        # إنشاء مجلدات SELinux وإنشاء flask.h
+        # إنشاء مجلدات SELinux وإنشاء flask.h شاملاً التعرّفات المفقودة
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
-        echo "Creating stub flask.h header..."
+        echo "Creating comprehensive stub flask.h header..."
         printf '%s\n' \
           '#ifndef _FLASK_H_' \
           '#ifndef _SELINUX_FLASK_H_' \
@@ -92,7 +91,11 @@ jobs:
           '#define _SELINUX_FLASK_H_' \
           '' \
           '#define SECINITSID_NUM 27' \
-          '#define SECINITSID_SECURITY 1' \
+          '#define SECINITSID_KERNEL 1' \
+          '#define SECINITSID_SECURITY 2' \
+          '#define SECINITSID_UNLABELED 3' \
+          '#define SECINITSID_INIT 4' \
+          '' \
           '#define SECCLASS_SECURITY 1' \
           '#define SECCLASS_PROCESS 2' \
           '#define SECCLASS_SYSTEM 3' \
@@ -100,6 +103,29 @@ jobs:
           '#define SECCLASS_FILESYSTEM 5' \
           '#define SECCLASS_FILE 6' \
           '#define SECCLASS_DIR 7' \
+          '#define SECCLASS_LNK_FILE 8' \
+          '#define SECCLASS_CHR_FILE 9' \
+          '#define SECCLASS_BLK_FILE 10' \
+          '#define SECCLASS_SOCK_FILE 11' \
+          '#define SECCLASS_FIFO_FILE 12' \
+          '#define SECCLASS_SOCKET 13' \
+          '#define SECCLASS_TCP_SOCKET 14' \
+          '#define SECCLASS_UDP_SOCKET 15' \
+          '#define SECCLASS_RAWIP_SOCKET 16' \
+          '#define SECCLASS_NETLINK_SOCKET 17' \
+          '#define SECCLASS_PACKET_SOCKET 18' \
+          '#define SECCLASS_KEY_SOCKET 19' \
+          '#define SECCLASS_UNIX_STREAM_SOCKET 20' \
+          '#define SECCLASS_UNIX_DGRAM_SOCKET 21' \
+          '#define SECCLASS_NETLINK_ROUTE_SOCKET 22' \
+          '#define SECCLASS_NETLINK_FIREWALL_SOCKET 23' \
+          '#define SECCLASS_NETLINK_TCPDIAG_SOCKET 24' \
+          '#define SECCLASS_NETLINK_NFLOG_SOCKET 25' \
+          '#define SECCLASS_NETLINK_XFRM_SOCKET 26' \
+          '#define SECCLASS_NETLINK_SELINUX_SOCKET 27' \
+          '#define SECCLASS_NETLINK_AUDIT_SOCKET 28' \
+          '#define SECCLASS_NETLINK_IP6FW_SOCKET 29' \
+          '#define SECCLASS_NETLINK_DNRT_SOCKET 30' \
           '' \
           '#endif' \
           '#endif' > security/selinux/include/flask.h
