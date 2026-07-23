@@ -57,37 +57,38 @@ jobs:
           sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
-        # 6. إنشاء ملف flask.h أولي (Stub) متكامل لتفادي الأخطاء أثناء التجميع
+        # 6. إنشاء ملف flask.h أولي (Stub) في كافة مسارات SELinux لتفادي الأخطاء
+        mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
-        if [ ! -f "security/selinux/ss/flask.h" ] || [ ! -s "security/selinux/ss/flask.h" ]; then
-          echo "Creating valid SELinux flask.h stub..."
-          printf '%s\n' \
-            '#ifndef _FLASK_H_' \
-            '#ifndef _SELINUX_FLASK_H_' \
-            '#define _FLASK_H_' \
-            '#define _SELINUX_FLASK_H_' \
-            '' \
-            '/* Minimal SELinux flask.h definitions required for kernel compilation */' \
-            '#define SECCLASS_SECURITY 1' \
-            '#define SECCLASS_PROCESS 2' \
-            '#define SECCLASS_SYSTEM 3' \
-            '#define SECCLASS_CAPABILITY 4' \
-            '#define SECCLASS_FILESYSTEM 5' \
-            '#define SECCLASS_FILE 6' \
-            '#define SECCLASS_DIR 7' \
-            '#define SECCLASS_LNK_FILE 8' \
-            '#define SECCLASS_CHR_FILE 9' \
-            '#define SECCLASS_BLK_FILE 10' \
-            '#define SECCLASS_SOCK_FILE 11' \
-            '#define SECCLASS_FIFO_FILE 12' \
-            '#define SECCLASS_SOCKET 13' \
-            '' \
-            '#endif' \
-            '#endif' > security/selinux/ss/flask.h
-        fi
+
+        printf '%s\n' \
+          '#ifndef _FLASK_H_' \
+          '#ifndef _SELINUX_FLASK_H_' \
+          '#define _FLASK_H_' \
+          '#define _SELINUX_FLASK_H_' \
+          '' \
+          '/* Minimal SELinux flask.h definitions required for kernel compilation */' \
+          '#define SECCLASS_SECURITY 1' \
+          '#define SECCLASS_PROCESS 2' \
+          '#define SECCLASS_SYSTEM 3' \
+          '#define SECCLASS_CAPABILITY 4' \
+          '#define SECCLASS_FILESYSTEM 5' \
+          '#define SECCLASS_FILE 6' \
+          '#define SECCLASS_DIR 7' \
+          '#define SECCLASS_LNK_FILE 8' \
+          '#define SECCLASS_CHR_FILE 9' \
+          '#define SECCLASS_BLK_FILE 10' \
+          '#define SECCLASS_SOCK_FILE 11' \
+          '#define SECCLASS_FIFO_FILE 12' \
+          '#define SECCLASS_SOCKET 13' \
+          '' \
+          '#endif' \
+          '#endif' > security/selinux/include/flask.h
+
+        cp security/selinux/include/flask.h security/selinux/ss/flask.h
 
         # 7. تعديل مسارات تضمين SELinux داخل ReSukiSU
-        grep -rl '#include "flask.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "flask.h"|#include <security/selinux/ss/flask.h>|g' || true
+        grep -rl '#include "flask.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "flask.h"|#include <security/selinux/include/flask.h>|g' || true
         grep -rl '#include "policydb.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "policydb.h"|#include <security/selinux/ss/policydb.h>|g' || true
 
         # 8. ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
