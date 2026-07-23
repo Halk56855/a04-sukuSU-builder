@@ -49,18 +49,20 @@ jobs:
       run: |
         cd kernel-source
 
-        # 1. إضافة pm_wakeup.h و wakeup_source.h إلى wakelock.h
+        # 1. إزالة أي تضمين لـ wakeup_source.h إذا كان موجوداً واستبداله بـ pm_wakeup.h
         WAKELOCK_FILE="include/linux/wakelock.h"
         if [ -f "$WAKELOCK_FILE" ]; then
           echo "Patching $WAKELOCK_FILE..."
-          sed -i '1i #include <linux/pm_wakeup.h>\n#include <linux/wakeup_source.h>' "$WAKELOCK_FILE"
+          sed -i 's/#include <linux\/wakeup_source.h>/#include <linux\/pm_wakeup.h>/g' "$WAKELOCK_FILE"
+          sed -i '1i #include <linux/pm_wakeup.h>' "$WAKELOCK_FILE"
         fi
 
-        # 2. إصلاح الترويسات والحلقات في hx9023s.c
+        # 2. إزالة wakeup_source.h وتعديل الحلقات في سائق hx9023s.c
         DRIVER_FILE="drivers/input/hx9023_sar/hx9023s.c"
         if [ -f "$DRIVER_FILE" ]; then
           echo "Patching $DRIVER_FILE..."
-          sed -i '1i #include <linux/i2c.h>\n#include <linux/pm_wakeup.h>\n#include <linux/wakeup_source.h>' "$DRIVER_FILE"
+          sed -i 's/#include <linux\/wakeup_source.h>/#include <linux\/pm_wakeup.h>/g' "$DRIVER_FILE"
+          sed -i '1i #include <linux/i2c.h>\n#include <linux/pm_wakeup.h>' "$DRIVER_FILE"
           sed -i 's/for (size_t index = 0;/size_t index; for (index = 0;/g' "$DRIVER_FILE"
           sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$DRIVER_FILE"
         fi
