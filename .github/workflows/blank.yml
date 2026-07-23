@@ -36,16 +36,21 @@ jobs:
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-        # تفعيل الخيار في الإعدادات
+        # تفعيل ReSukiSU و خيارات I2C المطلوبة لسائق hx9023s
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig || true
+        echo "CONFIG_I2C=y" >> arch/arm64/configs/a04_defconfig || true
+        echo "CONFIG_I2C_CHARDEV=y" >> arch/arm64/configs/a04_defconfig || true
 
     - name: Patch Driver Source Errors (hx9023s.c)
       run: |
         cd kernel-source
         FILE="drivers/input/hx9023_sar/hx9023s.c"
         if [ -f "$FILE" ]; then
-          echo "Applying patch to $FILE..."
+          echo "Applying header and C90 patch to $FILE..."
+          # إضافة الهيدرات المفقودة الخاصة بـ I2C و Wakeup
           sed -i '1i #include <linux/i2c.h>\n#include <linux/pm_wakeup.h>' "$FILE"
+          
+          # إصلاح الإعلانات لتوافق معيار C90
           sed -i 's/for (size_t index = 0;/size_t index; for (index = 0;/g' "$FILE"
           sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$FILE"
         fi
@@ -66,7 +71,7 @@ jobs:
         export HOSTCXX=g++
         export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # استخدام Cross-Linker للملفات المستهدفة و Host-Linker للأدوات المحلية
+        # استخدام Cross-Linker المخصص لـ aarch64
         export LD=aarch64-linux-gnu-ld
         export HOSTLD=/usr/bin/ld
         export AR=aarch64-linux-gnu-ar
@@ -74,8 +79,17 @@ jobs:
         export STRIP=aarch64-linux-gnu-strip
         export LDFLAGS="-Wl,--no-relax"
 
-        # بناء النواة
+        # إعداد التهيئة أولاً
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" KCFLAGS="-Wno-error" a04_defconfig
+
+        # تفعيل إعدادات I2C التأكيدية عبر scripts/config
+        if [ -f "scripts/config" ]; then
+          ./scripts/config --file out/.config --enable CONFIG_I2C
+          ./scripts/config --file out/.config --enable CONFIG_I2C_CHARDEV
+          make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" KCFLAGS="-Wno-error" olddefconfig
+        fi
+
+        # بدء عملية التجميع
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" KCFLAGS="-Wno-error" -j$(nproc)
 
     - name: Package with AnyKernel3
