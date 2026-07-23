@@ -63,13 +63,22 @@ jobs:
             'int ksu_handle_sepolicy(void) { return 0; }' > "$SEPOLICY_SRC"
         fi
 
-        # 4. إنشاء الترويسات المفقودة وتوليد flask.h المكتمل
+        # 4. إنشاء الترويسات المفقودة (seccomp_types.h و pgtable.h) وتوليد flask.h
         mkdir -p include/linux
         if [ ! -f "include/linux/seccomp_types.h" ]; then
           printf '%s\n' \
             '#ifndef _LINUX_SECCOMP_TYPES_H' \
             '#define _LINUX_SECCOMP_TYPES_H' \
             '#endif' > include/linux/seccomp_types.h
+        fi
+
+        if [ ! -f "include/linux/pgtable.h" ]; then
+          echo "Creating missing linux/pgtable.h header..."
+          printf '%s\n' \
+            '#ifndef _LINUX_PGTABLE_H' \
+            '#define _LINUX_PGTABLE_H' \
+            '#include <asm/pgtable.h>' \
+            '#endif' > include/linux/pgtable.h
         fi
 
         mkdir -p security/selinux/include
