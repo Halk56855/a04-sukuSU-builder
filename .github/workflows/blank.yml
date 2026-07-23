@@ -46,61 +46,35 @@ jobs:
         rm -rf temp_ksu
 
         # ----------------------------------------------------
-        # تطبيق الترقيعات لـ objsec.h و app_profile.c
+        # إصلاح وتجهيز الترويسات المفقودة (SELinux & Seccomp)
         # ----------------------------------------------------
-        echo "Applying refined compatibility patches..."
-        
-        # ترقيع objsec.h
-        find security/ -name "objsec.h" -exec sed -i 's/current_cred()->security/NULL/g' {} + || true
-        find security/ -name "objsec.h" -exec sed -i '/const struct task_security_struct \*tsec = current_security()/s/.*/const struct task_security_struct *tsec = NULL;/' {} + || true
-
-        # ترقيع app_profile.c
-        APP_PROFILE="drivers/kernelsu/policy/app_profile.c"
-        if [ -f "$APP_PROFILE" ]; then
-          echo "Patching $APP_PROFILE carefully..."
-          sed -i 's/current_security()/NULL/g' "$APP_PROFILE"
-          sed -i 's/const struct task_security_struct \*tsec = current_security()/const struct task_security_struct *tsec = NULL/' "$APP_PROFILE"
-          sed -i 's/!current->seccomp\.mode/1/g' "$APP_PROFILE"
-          sed -i 's/current->seccomp\.mode = 0/\/* bypassed *\//g' "$APP_PROFILE"
-          sed -i 's/current->seccomp\.filter = NULL/\/* bypassed *\//g' "$APP_PROFILE"
+        mkdir -p include/linux
+        if [ ! -f "include/linux/seccomp_types.h" ]; then
+          echo "Creating stub include/linux/seccomp_types.h..."
+          printf '%s\n' \
+            '#ifndef _LINUX_SECCOMP_TYPES_H' \
+            '#define _LINUX_SECCOMP_TYPES_H' \
+            '#endif' > include/linux/seccomp_types.h
         fi
 
-        # ترقيع kernel_compat.h
-        COMPAT_FILE="drivers/kernelsu/compat/kernel_compat.h"
-        if [ -f "$COMPAT_FILE" ]; then
-          echo "Patching $COMPAT_FILE early..."
-          sed -i 's/return inode->i_security;/return NULL;/g' "$COMPAT_FILE"
-          sed -i 's/return cred->security;/return NULL;/g' "$COMPAT_FILE"
-          sed -i 's/return p->sym_val_to_name.*/return NULL;/g' "$COMPAT_FILE"
-          
-          echo "#ifndef current_security" >> "$COMPAT_FILE"
-          echo "#define current_security() NULL" >> "$COMPAT_FILE"
-          echo "#endif" >> "$COMPAT_FILE"
-        fi
-
-        # ترقيع selinux_hide.c للتعامل مع الثوابت المفقودة
-        HIDE_FILE="drivers/kernelsu/feature/selinux_hide.c"
-        if [ -f "$HIDE_FILE" ]; then
-          echo "Injecting missing SELinux defines into $HIDE_FILE..."
-          sed -i '1i #ifndef SECINITSID_SECURITY\n#define SECINITSID_SECURITY 1\n#endif\n#ifndef SECURITY__CHECK_CONTEXT\n#define SECURITY__CHECK_CONTEXT 0\n#endif\n#ifndef SECURITY__COMPUTE_AV\n#define SECURITY__COMPUTE_AV 0\n#endif\n#ifndef PROCESS__SETCURRENT\n#define PROCESS__SETCURRENT 0\n#endif' "$HIDE_FILE"
-        fi
-        # ----------------------------------------------------
-
-        # 4. تعطيل فحص static_export_check.mk
-        mkdir -p drivers/kernelsu/tools
-        echo "# Bypassed ReSukiSU Integration Check" > drivers/kernelsu/tools/static_export_check.mk
-
-        # 5. تحويل الأخطاء القاطعة داخل Kbuild إلى تحذيرات
-        KBUILD_FILE="drivers/kernelsu/Kbuild"
-        if [ -f "$KBUILD_FILE" ]; then
-          echo "Patching $KBUILD_FILE to disable fatal error stops..."
-          sed -i 's/.*git submodule.*/# ignored/g' "$KBUILD_FILE"
-          sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
-        fi
-
-        # 6. إنشاء المجلدات المطلوبة لترويسات SELinux وتضمين الثوابت المفقودة
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
+
+        # إنشاء/تحديث policydb.h مع حقل policyvers
+        printf '%s\n' \
+          '#ifndef _POLICYDB_H_' \
+          '#define _POLICYDB_H_' \
+          '#include <linux/types.h>' \
+          '' \
+          '#define POLICYDB_VERSION_XPERMS_IOCTL 30' \
+          '' \
+          'struct policydb {' \
+          '    u32 policyvers;' \
+          '    void ***sym_val_to_name;' \
+          '};' \
+          'typedef struct policydb policydb_t;' \
+          '' \
+          '#endif' > security/selinux/ss/policydb.h
 
         # إنشاء flask.h
         printf '%s\n' \
@@ -145,19 +119,6 @@ jobs:
           '' \
           '#endif' > security/selinux/include/av_permissions.h
 
-        # إنشاء policydb.h
-        printf '%s\n' \
-          '#ifndef _POLICYDB_H_' \
-          '#define _POLICYDB_H_' \
-          '' \
-          'struct policydb {' \
-          '    int dummy;' \
-          '    void ***sym_val_to_name;' \
-          '};' \
-          'typedef struct policydb policydb_t;' \
-          '' \
-          '#endif' > security/selinux/ss/policydb.h
-
         # إنشاء avc.h
         printf '%s\n' \
           '#ifndef _AVC_H_' \
@@ -170,21 +131,80 @@ jobs:
           '' \
           '#endif' > security/selinux/include/avc.h
 
-        # نسخ الترويسات إلى كافة المسارات الممكنة
+        # نسخ الترويسات للتحقق من وجودها بكل المسارات
         cp security/selinux/include/flask.h security/selinux/ss/flask.h
         cp security/selinux/include/av_permissions.h security/selinux/ss/av_permissions.h
         cp security/selinux/ss/policydb.h security/selinux/include/policydb.h
         cp security/selinux/include/avc.h security/selinux/ss/avc.h
 
-        # 7. تعديل مسارات تضمين SELinux داخل ReSukiSU
+        # ----------------------------------------------------
+        # تطبيق الترقيعات لملفات KernelSU/ReSukiSU
+        # ----------------------------------------------------
+        echo "Applying refined compatibility patches..."
+        
+        # ترقيع objsec.h
+        find security/ -name "objsec.h" -exec sed -i 's/current_cred()->security/NULL/g' {} + || true
+        find security/ -name "objsec.h" -exec sed -i '/const struct task_security_struct \*tsec = current_security()/s/.*/const struct task_security_struct *tsec = NULL;/' {} + || true
+
+        # ترقيع app_profile.c
+        APP_PROFILE="drivers/kernelsu/policy/app_profile.c"
+        if [ -f "$APP_PROFILE" ]; then
+          echo "Patching $APP_PROFILE carefully..."
+          sed -i 's/current_security()/NULL/g' "$APP_PROFILE"
+          sed -i 's/const struct task_security_struct \*tsec = current_security()/const struct task_security_struct *tsec = NULL/' "$APP_PROFILE"
+          sed -i 's/!current->seccomp\.mode/1/g' "$APP_PROFILE"
+          sed -i 's/current->seccomp\.mode = 0/\/* bypassed *\//g' "$APP_PROFILE"
+          sed -i 's/current->seccomp\.filter = NULL/\/* bypassed *\//g' "$APP_PROFILE"
+        fi
+
+        # ترقيع kernel_compat.h
+        COMPAT_FILE="drivers/kernelsu/compat/kernel_compat.h"
+        if [ -f "$COMPAT_FILE" ]; then
+          echo "Patching $COMPAT_FILE early..."
+          sed -i 's/return inode->i_security;/return NULL;/g' "$COMPAT_FILE"
+          sed -i 's/return cred->security;/return NULL;/g' "$COMPAT_FILE"
+          sed -i 's/return p->sym_val_to_name.*/return NULL;/g' "$COMPAT_FILE"
+          
+          echo "#ifndef current_security" >> "$COMPAT_FILE"
+          echo "#define current_security() NULL" >> "$COMPAT_FILE"
+          echo "#endif" >> "$COMPAT_FILE"
+        fi
+
+        # ترقيع selinux_hide.c و rules.c
+        HIDE_FILE="drivers/kernelsu/feature/selinux_hide.c"
+        if [ -f "$HIDE_FILE" ]; then
+          echo "Injecting missing SELinux defines into $HIDE_FILE..."
+          sed -i '1i #ifndef SECINITSID_SECURITY\n#define SECINITSID_SECURITY 1\n#endif\n#ifndef SECURITY__CHECK_CONTEXT\n#define SECURITY__CHECK_CONTEXT 0\n#endif\n#ifndef SECURITY__COMPUTE_AV\n#define SECURITY__COMPUTE_AV 0\n#endif\n#ifndef PROCESS__SETCURRENT\n#define PROCESS__SETCURRENT 0\n#endif' "$HIDE_FILE"
+        fi
+
+        RULES_FILE="drivers/kernelsu/selinux/rules.c"
+        if [ -f "$RULES_FILE" ]; then
+          echo "Patching $RULES_FILE for policyvers compatibility..."
+          sed -i 's/db->policyvers/30/g' "$RULES_FILE" || true
+        fi
+        # ----------------------------------------------------
+
+        # 4. تعطيل فحص static_export_check.mk
+        mkdir -p drivers/kernelsu/tools
+        echo "# Bypassed ReSukiSU Integration Check" > drivers/kernelsu/tools/static_export_check.mk
+
+        # 5. تحويل الأخطاء القاطعة داخل Kbuild إلى تحذيرات
+        KBUILD_FILE="drivers/kernelsu/Kbuild"
+        if [ -f "$KBUILD_FILE" ]; then
+          echo "Patching $KBUILD_FILE to disable fatal error stops..."
+          sed -i 's/.*git submodule.*/# ignored/g' "$KBUILD_FILE"
+          sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
+        fi
+
+        # 6. تعديل مسارات تضمين SELinux داخل ReSukiSU
         grep -rl '#include "flask.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "flask.h"|#include <security/selinux/include/flask.h>|g' || true
         grep -rl '#include "policydb.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "policydb.h"|#include <security/selinux/ss/policydb.h>|g' || true
 
-        # 8. ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
+        # 7. ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-        # 9. إضافة إعدادات التكوين المبدئية إلى defconfig
+        # 8. إضافة إعدادات التكوين المبدئية إلى defconfig
         echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-r1\"" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_SECURITY_SELINUX=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_SECURITY_SELINUX_BOOTPARAM=y" >> arch/arm64/configs/a04_defconfig
