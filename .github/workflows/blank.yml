@@ -54,9 +54,9 @@ jobs:
       run: |
         cd kernel-source
 
-        # عزل بيئة Proton Clang لمنع تداخل مسارات المترجم
-        export PATH="$HOME/proton-clang/bin:/usr/bin:/bin:$PATH"
-        export LD_LIBRARY_PATH="$HOME/proton-clang/lib"
+        # إعداد مسارات النظام وإلغاء متغير مكتبات Proton Clang المسبب للتعارض
+        export PATH="$HOME/proton-clang/bin:/usr/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/sbin"
+        unset LD_LIBRARY_PATH
 
         export ARCH=arm64
         export SUBARCH=arm64
@@ -65,12 +65,12 @@ jobs:
         export HOSTCXX=g++
         export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # إجبار النظام على استخدام linker النظام المباشر
-        export HOSTLD=/usr/bin/ld
+        # استخدام GNU Linker الخاص بالنظام وتعطيل تحسينات no-relax
         export LD=/usr/bin/ld
-        export LDFLAGS="-fuse-ld=/usr/bin/ld"
+        export HOSTLD=/usr/bin/ld
+        export LDFLAGS="-fuse-ld=/usr/bin/ld -Wl,--no-relax"
 
-        # بناء النواة مع تحديد المتغيرات صراحة لـ make
+        # بناء النواة
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC=clang KCFLAGS="-Wno-error" a04_defconfig
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld CC=clang KCFLAGS="-Wno-error" -j$(nproc)
 
