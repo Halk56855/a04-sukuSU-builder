@@ -27,10 +27,14 @@ jobs:
     - name: Integrate ReSukiSU & Custom Configurations
       run: |
         cd kernel-source
-        # استنساخ ReSukiSU ونقل مجلد النواة
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git temp_ksu
-        mv temp_ksu/kernel drivers/kernelsu
-        rm -rf temp_ksu
+
+        # استنساخ ReSukiSU مباشرة وإزالة قيود submodule
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
+        
+        # تعطيل فحص git submodule داخل Kbuild الخاص بـ ReSukiSU إن وجد
+        if [ -f "drivers/kernelsu/Kbuild" ]; then
+          sed -i 's/.*git submodule.*/# ignored/g' drivers/kernelsu/Kbuild
+        fi
 
         # ربط الكود بملفات Makefile و Kconfig
         echo "obj-y += kernelsu/" >> drivers/Makefile
@@ -49,7 +53,7 @@ jobs:
       run: |
         cd kernel-source
 
-        # 1. إزالة أي تضمين لـ wakeup_source.h إذا كان موجوداً واستبداله بـ pm_wakeup.h
+        # 1. إزالة أي تضمين لـ wakeup_source.h واستبداله بـ pm_wakeup.h
         WAKELOCK_FILE="include/linux/wakelock.h"
         if [ -f "$WAKELOCK_FILE" ]; then
           echo "Patching $WAKELOCK_FILE..."
