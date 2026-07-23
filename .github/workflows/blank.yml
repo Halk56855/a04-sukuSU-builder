@@ -45,6 +45,42 @@ jobs:
         # إزالة المجلد المؤقت
         rm -rf temp_ksu
 
+        # ----------------------------------------------------
+        # تطبيق الترقيعات المباشرة فور النسخ وقبل أي معالجة
+        # ----------------------------------------------------
+        echo "Applying early compatibility patches..."
+        
+        # ترقيع objsec.h لمعالجة current_security() و struct cred->security
+        find security/ -name "objsec.h" -exec sed -i 's/current_cred()->security/NULL/g' {} + || true
+        find security/ -name "objsec.h" -exec sed -i 's/cred->security/NULL/g' {} + || true
+        find security/ -name "objsec.h" -exec sed -i 's/#define current_security().*/#define current_security() NULL/g' {} + || true
+
+        # ترقيع app_profile.c بشكل مباشر لمسح الوصول المباشر إلى tsec و cred->security
+        APP_PROFILE="drivers/kernelsu/policy/app_profile.c"
+        if [ -f "$APP_PROFILE" ]; then
+          echo "Patching $APP_PROFILE early..."
+          sed -i 's/current_security()/NULL/g' "$APP_PROFILE"
+          sed -i 's/const struct task_security_struct \*tsec = .*/const struct task_security_struct *tsec = NULL;/g' "$APP_PROFILE"
+          sed -i 's/tsec->/NULL->/g' "$APP_PROFILE" || true
+          sed -i 's/!current->seccomp\.mode/1/g' "$APP_PROFILE"
+          sed -i 's/current->seccomp\.mode = 0/\/* bypassed *\//g' "$APP_PROFILE"
+          sed -i 's/current->seccomp\.filter = NULL/\/* bypassed *\//g' "$APP_PROFILE"
+        fi
+
+        # ترقيع kernel_compat.h
+        COMPAT_FILE="drivers/kernelsu/compat/kernel_compat.h"
+        if [ -f "$COMPAT_FILE" ]; then
+          echo "Patching $COMPAT_FILE early..."
+          sed -i 's/return inode->i_security;/return NULL;/g' "$COMPAT_FILE"
+          sed -i 's/return cred->security;/return NULL;/g' "$COMPAT_FILE"
+          sed -i 's/return p->sym_val_to_name.*/return NULL;/g' "$COMPAT_FILE"
+          
+          echo "#ifndef current_security" >> "$COMPAT_FILE"
+          echo "#define current_security() NULL" >> "$COMPAT_FILE"
+          echo "#endif" >> "$COMPAT_FILE"
+        fi
+        # ----------------------------------------------------
+
         # 4. تعطيل فحص static_export_check.mk
         mkdir -p drivers/kernelsu/tools
         echo "# Bypassed ReSukiSU Integration Check" > drivers/kernelsu/tools/static_export_check.mk
@@ -153,7 +189,7 @@ jobs:
         echo "CONFIG_PM_SLEEP=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_WAKELOCK=y" >> arch/arm64/configs/a04_defconfig
 
-    - name: Apply Header, Driver & SELinux Patches
+    - name: Apply Header & Driver Patches
       run: |
         cd kernel-source
 
@@ -181,41 +217,6 @@ jobs:
           sed -i 's/#include <linux\/wakeup_source.h>/#include <linux\/pm_wakeup.h>/g' "$DRIVER_FILE"
           sed -i 's/for (size_t index = 0;/size_t index; for (index = 0;/g' "$DRIVER_FILE"
           sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$DRIVER_FILE"
-        fi
-
-    - name: Patch ReSukiSU Credential & Security Struct Compatibility
-      run: |
-        cd kernel-source
-
-        # 1. ترقيع objsec.h لمعالجة current_security() و struct cred->security
-        find security/ -name "objsec.h" -exec sed -i 's/current_cred()->security/NULL/g' {} + || true
-        find security/ -name "objsec.h" -exec sed -i 's/cred->security/NULL/g' {} + || true
-        find security/ -name "objsec.h" -exec sed -i 's/#define current_security().*/#define current_security() NULL/g' {} + || true
-
-        # 2. ترقيع app_profile.c بشكل مباشر لمسح الوصول المباشر إلى tsec و cred->security
-        APP_PROFILE="drivers/kernelsu/policy/app_profile.c"
-        if [ -f "$APP_PROFILE" ]; then
-          echo "Patching $APP_PROFILE for struct cred security incompatibility..."
-          sed -i 's/current_security()/NULL/g' "$APP_PROFILE"
-          sed -i 's/const struct task_security_struct \*tsec = .*/const struct task_security_struct *tsec = NULL;/g' "$APP_PROFILE"
-          sed -i 's/tsec->/NULL->/g' "$APP_PROFILE" || true
-          sed -i 's/!current->seccomp\.mode/1/g' "$APP_PROFILE"
-          sed -i 's/current->seccomp\.mode = 0/\/* bypassed *\//g' "$APP_PROFILE"
-          sed -i 's/current->seccomp\.filter = NULL/\/* bypassed *\//g' "$APP_PROFILE"
-        fi
-
-        # 3. ترقيع kernel_compat.h لإرجاع NULL عند الوصول للحقول غير الموجودة
-        COMPAT_FILE="drivers/kernelsu/compat/kernel_compat.h"
-        if [ -f "$COMPAT_FILE" ]; then
-          echo "Patching $COMPAT_FILE..."
-          sed -i 's/return inode->i_security;/return NULL;/g' "$COMPAT_FILE"
-          sed -i 's/return cred->security;/return NULL;/g' "$COMPAT_FILE"
-          sed -i 's/return p->sym_val_to_name.*/return NULL;/g' "$COMPAT_FILE"
-          
-          # إضافة تعريف آمن لـ current_security في حال عدم وجوده
-          echo "#ifndef current_security" >> "$COMPAT_FILE"
-          echo "#define current_security() NULL" >> "$COMPAT_FILE"
-          echo "#endif" >> "$COMPAT_FILE"
         fi
 
     - name: Build Kernel
