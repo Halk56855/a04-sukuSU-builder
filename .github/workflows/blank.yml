@@ -57,7 +57,7 @@ jobs:
           sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
-        # 6. إنشاء ملف flask.h أولي (Stub) في كافة مسارات SELinux لتفادي الأخطاء
+        # 6. إنشاء ملفات flask.h الشاملة لـ SELinux لجميع المسارات المطلوبة
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
@@ -67,7 +67,11 @@ jobs:
           '#define _FLASK_H_' \
           '#define _SELINUX_FLASK_H_' \
           '' \
-          '/* Minimal SELinux flask.h definitions required for kernel compilation */' \
+          '#define SECINITSID_NUM 27' \
+          '#ifndef CONFIG_SECURITY_SELINUX_SIDTAB_HASH_BITS' \
+          '#define CONFIG_SECURITY_SELINUX_SIDTAB_HASH_BITS 7' \
+          '#endif' \
+          '' \
           '#define SECCLASS_SECURITY 1' \
           '#define SECCLASS_PROCESS 2' \
           '#define SECCLASS_SYSTEM 3' \
@@ -87,18 +91,27 @@ jobs:
 
         cp security/selinux/include/flask.h security/selinux/ss/flask.h
 
-        # 7. تعديل مسارات تضمين SELinux داخل ReSukiSU
+        # 7. معالجة ReSukiSU compat للحقول غير المدعومة (inode & cred security pointers)
+        COMPAT_FILE="drivers/kernelsu/compat/kernel_compat.h"
+        if [ -f "$COMPAT_FILE" ]; then
+          echo "Patching $COMPAT_FILE for incompatible struct members..."
+          sed -i 's/return inode->i_security;/return NULL; \/* Stub *\/ /g' "$COMPAT_FILE"
+          sed -i 's/return cred->security;/return NULL; \/* Stub *\/ /g' "$COMPAT_FILE"
+        fi
+
+        # 8. تعديل مسارات تضمين SELinux داخل ReSukiSU
         grep -rl '#include "flask.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "flask.h"|#include <security/selinux/include/flask.h>|g' || true
         grep -rl '#include "policydb.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "policydb.h"|#include <security/selinux/ss/policydb.h>|g' || true
 
-        # 8. ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
+        # 9. ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-        # 9. إضافة إعدادات التكوين المبدئية إلى defconfig
+        # 10. إضافة إعدادات التكوين المبدئية إلى defconfig
         echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-r1\"" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_SECURITY_SELINUX=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_SECURITY_SELINUX_BOOTPARAM=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_SECURITY_SELINUX_SIDTAB_HASH_BITS=7" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS_ALL=y" >> arch/arm64/configs/a04_defconfig
@@ -167,6 +180,7 @@ jobs:
         if [ -f "scripts/config" ]; then
           ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-TragicHorizon-v3-r1"
           ./scripts/config --file out/.config --enable CONFIG_SECURITY_SELINUX
+          ./scripts/config --file out/.config --set-val CONFIG_SECURITY_SELINUX_SIDTAB_HASH_BITS 7
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_KSU
