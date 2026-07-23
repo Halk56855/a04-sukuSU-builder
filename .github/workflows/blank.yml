@@ -103,7 +103,6 @@ jobs:
           '#endif' \
           '#endif' > security/selinux/include/flask.h
 
-        # نسخ flask.h لأي مسار متوقع داخل سورس النواة
         cp security/selinux/include/flask.h security/selinux/flask.h || true
         cp security/selinux/include/flask.h security/selinux/ss/flask.h || true
 
@@ -159,7 +158,7 @@ jobs:
         echo "CONFIG_PM_SLEEP=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_WAKELOCK=y" >> arch/arm64/configs/a04_defconfig
 
-    - name: Apply Header & Driver Patches
+    - name: Apply Header & Driver Patches & Link Stubs
       run: |
         cd kernel-source
 
@@ -177,6 +176,29 @@ jobs:
           sed -i 's/#include <linux\/wakeup_source.h>/#include <linux\/pm_wakeup.h>/g' "$DRIVER_FILE"
           sed -i 's/for (size_t index = 0;/size_t index; for (index = 0;/g' "$DRIVER_FILE"
           sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$DRIVER_FILE"
+        fi
+
+        # 3. إنشاء stubs للرموز المفقودة بشكل آمن لتجنب أخطاء صيغة YAML
+        mkdir -p drivers/samsung
+        printf '%s\n' \
+          '#include <linux/types.h>' \
+          '#include <linux/kernel.h>' \
+          '' \
+          'char mboot_params_buffer[1024] = {0};' \
+          '' \
+          'void __inner_flush_dcache_all(void) {}' \
+          '' \
+          'int mtk_pmic_pwrkey_status(void) { return 0; }' \
+          'int mtk_pmic_homekey_status(void) { return 0; }' > drivers/samsung/sec_compat_stubs.c
+
+        # إضافة الموديول الجديد إلى drivers/samsung/Makefile أو drivers/Makefile
+        if [ -f "drivers/samsung/Makefile" ]; then
+          echo "obj-y += sec_compat_stubs.o" >> drivers/samsung/Makefile
+        else
+          echo "obj-y += samsung/sec_compat_stubs.o" >> drivers/Makefile
+          echo "obj-y += samsung/" >> drivers/Makefile || true
+          mkdir -p drivers/samsung
+          echo "obj-y += sec_compat_stubs.o" > drivers/samsung/Makefile
         fi
 
     - name: Build Kernel
