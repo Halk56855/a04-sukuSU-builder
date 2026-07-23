@@ -122,7 +122,7 @@ jobs:
           '' \
           '#endif' > security/selinux/include/avc.h
 
-        # نسخ الترويسات إلى كافة المسارات الممكنة لتفادي أخطاء المسارات المتداخلة
+        # نسخ الترويسات إلى كافة المسارات الممكنة
         cp security/selinux/include/flask.h security/selinux/ss/flask.h
         cp security/selinux/include/av_permissions.h security/selinux/ss/av_permissions.h
         cp security/selinux/ss/policydb.h security/selinux/include/policydb.h
@@ -192,6 +192,16 @@ jobs:
       run: |
         cd kernel-source
 
+        # Fix objsec.h macro FIRST (before app_profile.c compilation)
+        OBJSEC_FILE="security/selinux/include/objsec.h"
+        if [ -f "$OBJSEC_FILE" ]; then
+          echo "Patching $OBJSEC_FILE to fix cred->security access..."
+          # Replace the problematic macro that accesses cred->security
+          sed -i 's/current_cred()->security/NULL/g' "$OBJSEC_FILE"
+          # Also handle the current_security() macro itself
+          sed -i 's/#define current_security.*/#define current_security() NULL/g' "$OBJSEC_FILE"
+        fi
+
         APP_PROFILE="drivers/kernelsu/policy/app_profile.c"
         if [ -f "$APP_PROFILE" ]; then
           echo "Patching $APP_PROFILE for kernel struct compatibility..."
@@ -206,13 +216,6 @@ jobs:
           
           # Fix: no member named 'filter' in 'struct seccomp'
           sed -i 's/current->seccomp\.filter = NULL/\/* seccomp filter cleared *\//g' "$APP_PROFILE"
-        fi
-
-        # Fix objsec.h macro accessing non-existent cred->security member
-        OBJSEC_FILE="security/selinux/include/objsec.h"
-        if [ -f "$OBJSEC_FILE" ]; then
-          echo "Patching $OBJSEC_FILE..."
-          sed -i 's/current_cred()->security/NULL/g' "$OBJSEC_FILE"
         fi
 
     - name: Build Kernel
