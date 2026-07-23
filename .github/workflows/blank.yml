@@ -57,9 +57,9 @@ jobs:
           sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
-        # 6. إصلاح مسارات تضمين SELinux داخل ReSukiSU
-        find drivers/kernelsu/ -type f -name "*.c" -o -name "*.h" | xargs sed -i 's|#include "flask.h"|#include <security/selinux/ss/flask.h>|g' 2>/dev/null || true
-        find drivers/kernelsu/ -type f -name "*.c" -o -name "*.h" | xargs sed -i 's|#include "policydb.h"|#include <security/selinux/ss/policydb.h>|g' 2>/dev/null || true
+        # 6. إصلاح مسارات تضمين SELinux داخل ReSukiSU باستخدام grep للوصول المباشر
+        grep -rl '#include "flask.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "flask.h"|#include <security/selinux/ss/flask.h>|g' || true
+        grep -rl '#include "policydb.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "policydb.h"|#include <security/selinux/ss/policydb.h>|g' || true
 
         # 7. ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
         echo "obj-y += kernelsu/" >> drivers/Makefile
@@ -130,7 +130,7 @@ jobs:
         export STRIP=aarch64-linux-gnu-strip
         export LDFLAGS="-Wl,--no-relax"
         
-        # إضافة مسارات include الخاثرة بـ SELinux لـ KCFLAGS
+        # إضافة مسارات include الخاصة بـ SELinux لـ KCFLAGS
         export KCFLAGS="-Wno-error -Wno-implicit-function-declaration -I$(pwd)/security/selinux -I$(pwd)/security/selinux/ss -I$(pwd)/security/selinux/include"
 
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
