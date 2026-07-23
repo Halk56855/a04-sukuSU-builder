@@ -45,25 +45,31 @@ jobs:
         echo "CONFIG_PM_SLEEP=y" >> arch/arm64/configs/a04_defconfig || true
         echo "CONFIG_WAKELOCK=y" >> arch/arm64/configs/a04_defconfig || true
 
-    - name: Patch Driver Source Errors (hx9023s.c)
+    - name: Apply Header & Driver Patches
       run: |
         cd kernel-source
-        FILE="drivers/input/hx9023_sar/hx9023s.c"
-        if [ -f "$FILE" ]; then
-          echo "Applying header and C90 patch to $FILE..."
-          # إضافة الترويسات المفقودة قبل wakelock.h لمنع خطأ implicit declaration
-          sed -i '1i #include <linux/i2c.h>\n#include <linux/pm_wakeup.h>' "$FILE"
-          
-          # إصلاح الإعلانات لتوافق معيار C90
-          sed -i 's/for (size_t index = 0;/size_t index; for (index = 0;/g' "$FILE"
-          sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$FILE"
+
+        # 1. إضافة pm_wakeup.h و wakeup_source.h إلى wakelock.h
+        WAKELOCK_FILE="include/linux/wakelock.h"
+        if [ -f "$WAKELOCK_FILE" ]; then
+          echo "Patching $WAKELOCK_FILE..."
+          sed -i '1i #include <linux/pm_wakeup.h>\n#include <linux/wakeup_source.h>' "$WAKELOCK_FILE"
+        fi
+
+        # 2. إصلاح الترويسات والحلقات في hx9023s.c
+        DRIVER_FILE="drivers/input/hx9023_sar/hx9023s.c"
+        if [ -f "$DRIVER_FILE" ]; then
+          echo "Patching $DRIVER_FILE..."
+          sed -i '1i #include <linux/i2c.h>\n#include <linux/pm_wakeup.h>\n#include <linux/wakeup_source.h>' "$DRIVER_FILE"
+          sed -i 's/for (size_t index = 0;/size_t index; for (index = 0;/g' "$DRIVER_FILE"
+          sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$DRIVER_FILE"
         fi
 
     - name: Build Kernel
       run: |
         cd kernel-source
 
-        # إعداد مسارات النظام
+        # إعداد مسارات النظام والمتغيرات
         export PATH="/usr/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/sbin:$HOME/proton-clang/bin"
         unset LD_LIBRARY_PATH
 
@@ -75,44 +81,40 @@ jobs:
         export HOSTCXX=g++
         export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # Cross-Linker الخاص بالهدف
         export LD=aarch64-linux-gnu-ld
         export HOSTLD=/usr/bin/ld
         export AR=aarch64-linux-gnu-ar
         export OBJCOPY=aarch64-linux-gnu-objcopy
         export STRIP=aarch64-linux-gnu-strip
         export LDFLAGS="-Wl,--no-relax"
+        export KCFLAGS="-Wno-error -Wno-implicit-function-declaration"
 
         # إعداد التهيئة أولاً
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" KCFLAGS="-Wno-error" a04_defconfig
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
 
-        # التأكد من تفعيل إعدادات إدارة الطاقة والاسم عبر scripts/config
+        # تفعيل إعدادات النظام واسم النواة
         if [ -f "scripts/config" ]; then
           ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-TragicHorizon-v3-r1"
           ./scripts/config --file out/.config --enable CONFIG_I2C
           ./scripts/config --file out/.config --enable CONFIG_PM
           ./scripts/config --file out/.config --enable CONFIG_PM_SLEEP
           ./scripts/config --file out/.config --enable CONFIG_WAKELOCK
-          make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" KCFLAGS="-Wno-error" olddefconfig
+          make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" olddefconfig
         fi
 
         # بدء عملية التجميع
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" KCFLAGS="-Wno-error" -j$(nproc)
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" -j$(nproc)
 
     - name: Package with AnyKernel3
       run: |
-        # استنساخ AnyKernel3
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
-        # نسخ الملف المجمع
         cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/ || true
 
-        # إعداد ملف التهيئة الخاص بجهاز A04
         cd AnyKernel3
         sed -i 's/device.name1=/device.name1=a04/g' anykernel.sh
         sed -i 's/block=/block=\/dev\/block\/by-name\/boot/g' anykernel.sh
 
-        # إنشاء ملف ZIP النهائي باسم التحديث
         zip -r9 "../TragicHorizon-v3-r1-Samsung-A04.zip" * -x .git README.md
 
     - name: Upload AnyKernel3 Package
