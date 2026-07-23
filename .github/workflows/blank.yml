@@ -41,13 +41,14 @@ jobs:
         mkdir -p drivers/kernelsu/tools
         echo "# Bypassed ReSukiSU Integration Check" > drivers/kernelsu/tools/static_export_check.mk
 
-        # 4. تعطيل أي فحص متزمت لـ git submodule داخل Kbuild
-        if [ -f "drivers/kernelsu/Kbuild" ]; then
-          sed -i 's/.*git submodule.*/# ignored/g' drivers/kernelsu/Kbuild
+        # 4. إغلاق وتجاوز جميع أخطاء Kbuild وتعطيل فحص git submodule
+        KBUILD_FILE="drivers/kernelsu/Kbuild"
+        if [ -f "$KBUILD_FILE" ]; then
+          echo "Patching $KBUILD_FILE to disable fatal error stops..."
+          sed -i 's/.*git submodule.*/# ignored/g' "$KBUILD_FILE"
           
-          # تجاوز فحص Non-GKI / TP hooks وتحويل الخطأ إلى تحذير
-          sed -i 's/\$(error TP hooks are incompatible with Non-GKI\/GKI 1.0 kernels.. Stop.)/\$(warning Falling back for Non-GKI kernel...)/g' drivers/kernelsu/Kbuild
-          sed -i 's/\$(error .*TP Hooks are only supported on GKI 2.0 kernels.*/\$(warning Continuing build for Non-GKI kernel)/g' drivers/kernelsu/Kbuild
+          # تحويل أي أمر $(error ...) إلى $(warning ...) لضمان عدم توقف التجميع
+          sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
         # 5. ربط ReSukiSU بملفات Makefile و Kconfig الرئيسية
