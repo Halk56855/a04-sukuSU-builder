@@ -263,20 +263,24 @@ jobs:
 
     - name: Package with AnyKernel3
       run: |
-        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+        # استنساخ المستودع المخصص لجهاز Samsung A04 مباشرة
+        git clone --depth=1 https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
 
-        cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/ || true
+        # نسخ ملف النواة المجمع إلى AnyKernel3
+        if [ -f "kernel-source/out/arch/arm64/boot/Image.gz-dtb" ]; then
+          cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+        elif [ -f "kernel-source/out/arch/arm64/boot/Image.gz" ]; then
+          cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/
+        elif [ -f "kernel-source/out/arch/arm64/boot/Image" ]; then
+          cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/
+        else
+          echo "Error: No compiled kernel Image found!" && exit 1
+        fi
 
         cd AnyKernel3
-        # إضافة كافة تسميات وموديلات Samsung A04 لضمان التوافق مع OrangeFox والـ ROM
-        sed -i 's/device.name1=.*/device.name1=a04/g' anykernel.sh
-        sed -i 's/device.name2=.*/device.name2=a04xx/g' anykernel.sh
-        sed -i 's/device.name3=.*/device.name3=A045F/g' anykernel.sh
-        sed -i 's/device.name4=.*/device.name4=a045f/g' anykernel.sh
-        sed -i 's/device.name5=.*/device.name5=A04/g' anykernel.sh
-        sed -i 's|block=.*|block=/dev/block/by-name/boot;|g' anykernel.sh
 
-        zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * -x .git README.md
+        # الضغط بدون المجلد المباشر لضمان توافق بنية الـ ZIP مع OrangeFox
+        zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" . -x "*.git*" "README.md" "*placeholder"
 
     - name: Upload AnyKernel3 Package
       uses: actions/upload-artifact@v4
