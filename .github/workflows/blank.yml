@@ -60,7 +60,7 @@ jobs:
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
-        # إنشاء/تحديث policydb.h مع الهياكل والأعضاء الكاملة
+        # إنشاء/تحديث policydb.h مع حماية إعادة التعريف للـ Structs
         printf '%s\n' \
           '#ifndef _POLICYDB_H_' \
           '#define _POLICYDB_H_' \
@@ -68,36 +68,63 @@ jobs:
           '' \
           '#define POLICYDB_VERSION_XPERMS_IOCTL 30' \
           '' \
+          '#ifndef SYMTAB_DEFINED' \
+          '#define SYMTAB_DEFINED' \
           'struct symtab {' \
           '    u32 nprim;' \
           '};' \
+          '#endif' \
           '' \
+          '#ifndef AVTAB_NODE_DEFINED' \
+          '#define AVTAB_NODE_DEFINED' \
           'struct avtab_node {' \
           '    struct avtab_node *next;' \
           '    void *key;' \
           '    void *datum;' \
           '};' \
+          '#endif' \
           '' \
+          '#ifndef AVTAB_DEFINED' \
+          '#define AVTAB_DEFINED' \
           'struct avtab {' \
           '    struct avtab_node **htable;' \
           '    u32 nel;' \
           '    u32 nslot;' \
           '};' \
+          '#endif' \
           '' \
+          '#ifndef CLASS_DATUM_DEFINED' \
+          '#define CLASS_DATUM_DEFINED' \
           'struct class_datum {' \
           '    char *name;' \
           '    struct symtab permissions;' \
           '    struct class_datum *comdatum;' \
           '};' \
+          '#endif' \
           '' \
+          '#ifndef TYPE_DATUM_DEFINED' \
+          '#define TYPE_DATUM_DEFINED' \
           'struct type_datum {' \
           '    char *name;' \
           '};' \
+          '#endif' \
           '' \
+          '#ifndef SIDTAB_DEFINED' \
+          '#define SIDTAB_DEFINED' \
           'struct sidtab {' \
           '    int dummy;' \
           '};' \
+          '#endif' \
           '' \
+          '#ifndef SELINUX_SS_DEFINED' \
+          '#define SELINUX_SS_DEFINED' \
+          'struct selinux_ss {' \
+          '    int dummy;' \
+          '};' \
+          '#endif' \
+          '' \
+          '#ifndef POLICYDB_STRUCT_DEFINED' \
+          '#define POLICYDB_STRUCT_DEFINED' \
           'struct policydb {' \
           '    u32 policyvers;' \
           '    struct avtab te_avtab;' \
@@ -107,14 +134,22 @@ jobs:
           '    void ***sym_val_to_name;' \
           '};' \
           'typedef struct policydb policydb_t;' \
+          '#endif' \
           '' \
           '#endif' > security/selinux/ss/policydb.h
 
-        # إنشاء services.h
+        # إنشاء services.h لحماية sidtab و selinux_ss
         printf '%s\n' \
           '#ifndef _SERVICES_H_' \
           '#define _SERVICES_H_' \
-          'struct sidtab;' \
+          '#ifndef SIDTAB_DEFINED' \
+          '#define SIDTAB_DEFINED' \
+          'struct sidtab { int dummy; };' \
+          '#endif' \
+          '#ifndef SELINUX_SS_DEFINED' \
+          '#define SELINUX_SS_DEFINED' \
+          'struct selinux_ss { int dummy; };' \
+          '#endif' \
           '#endif' > security/selinux/ss/services.h
 
         # إنشاء flask.h
