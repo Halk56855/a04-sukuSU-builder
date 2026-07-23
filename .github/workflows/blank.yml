@@ -188,6 +188,25 @@ jobs:
           sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$DRIVER_FILE"
         fi
 
+    - name: Patch ReSukiSU Compatibility Issues
+      run: |
+        cd kernel-source
+
+        APP_PROFILE="drivers/kernelsu/policy/app_profile.c"
+        if [ -f "$APP_PROFILE" ]; then
+          echo "Patching $APP_PROFILE for kernel struct compatibility..."
+          
+          # Fix: no member named 'security' in 'struct cred'
+          sed -i 's/current_security()/NULL/g' "$APP_PROFILE"
+          
+          # Fix: no member named 'mode' in 'struct seccomp'
+          sed -i 's/!current->seccomp\.mode/1/g' "$APP_PROFILE"
+          sed -i 's/current->seccomp\.mode = 0/\/* seccomp disabled *\//g' "$APP_PROFILE"
+          
+          # Fix: no member named 'filter' in 'struct seccomp'
+          sed -i 's/current->seccomp\.filter = NULL/\/* seccomp filter cleared *\//g' "$APP_PROFILE"
+        fi
+
     - name: Build Kernel
       run: |
         cd kernel-source
