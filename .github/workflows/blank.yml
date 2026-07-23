@@ -46,7 +46,7 @@ jobs:
         rm -rf temp_ksu
 
         # ----------------------------------------------------
-        # تطبيق الترقيعات المحسنة لـ objsec.h و app_profile.c
+        # تطبيق الترقيعات لـ objsec.h و app_profile.c
         # ----------------------------------------------------
         echo "Applying refined compatibility patches..."
         
@@ -54,7 +54,7 @@ jobs:
         find security/ -name "objsec.h" -exec sed -i 's/current_cred()->security/NULL/g' {} + || true
         find security/ -name "objsec.h" -exec sed -i '/const struct task_security_struct \*tsec = current_security()/s/.*/const struct task_security_struct *tsec = NULL;/' {} + || true
 
-        # ترقيع app_profile.c بشكل دقيق
+        # ترقيع app_profile.c
         APP_PROFILE="drivers/kernelsu/policy/app_profile.c"
         if [ -f "$APP_PROFILE" ]; then
           echo "Patching $APP_PROFILE carefully..."
@@ -77,6 +77,13 @@ jobs:
           echo "#define current_security() NULL" >> "$COMPAT_FILE"
           echo "#endif" >> "$COMPAT_FILE"
         fi
+
+        # ترقيع selinux_hide.c للتعامل مع الثوابت المفقودة
+        HIDE_FILE="drivers/kernelsu/feature/selinux_hide.c"
+        if [ -f "$HIDE_FILE" ]; then
+          echo "Injecting missing SELinux defines into $HIDE_FILE..."
+          sed -i '1i #ifndef SECINITSID_SECURITY\n#define SECINITSID_SECURITY 1\n#endif\n#ifndef SECURITY__CHECK_CONTEXT\n#define SECURITY__CHECK_CONTEXT 0\n#endif\n#ifndef SECURITY__COMPUTE_AV\n#define SECURITY__COMPUTE_AV 0\n#endif\n#ifndef PROCESS__SETCURRENT\n#define PROCESS__SETCURRENT 0\n#endif' "$HIDE_FILE"
+        fi
         # ----------------------------------------------------
 
         # 4. تعطيل فحص static_export_check.mk
@@ -91,7 +98,7 @@ jobs:
           sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
-        # 6. إنشاء المجلدات المطلوبة لترويسات SELinux
+        # 6. إنشاء المجلدات المطلوبة لترويسات SELinux وتضمين الثوابت المفقودة
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
@@ -103,6 +110,7 @@ jobs:
           '#define _SELINUX_FLASK_H_' \
           '' \
           '#define SECINITSID_NUM 27' \
+          '#define SECINITSID_SECURITY 1' \
           '#ifndef CONFIG_SECURITY_SELINUX_SIDTAB_HASH_BITS' \
           '#define CONFIG_SECURITY_SELINUX_SIDTAB_HASH_BITS 7' \
           '#endif' \
@@ -131,6 +139,9 @@ jobs:
           '' \
           '#define PERM_FILE__READ 0' \
           '#define PERM_FILE__WRITE 1' \
+          '#define SECURITY__CHECK_CONTEXT 0' \
+          '#define SECURITY__COMPUTE_AV 0' \
+          '#define PROCESS__SETCURRENT 0' \
           '' \
           '#endif' > security/selinux/include/av_permissions.h
 
@@ -239,7 +250,6 @@ jobs:
         export STRIP=aarch64-linux-gnu-strip
         export LDFLAGS="-Wl,--no-relax"
         
-        # إضافة تعطيل خطأ incompatible-pointer-types
         export KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-error=incompatible-pointer-types"
 
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
