@@ -1,4 +1,4 @@
-name: Build Samsung A04 ReSukiSU Kernel
+name: Build Samsung A04 ReSukiSU Kernel & Pack AnyKernel3
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
     - name: Install Build Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils binutils-aarch64-linux-gnu libc6-dev-arm64-cross libc6-dev-i386
+        sudo apt-get install -y bc bison build-essential flex git git-lfs libssl-dev libcrypto++-dev lz4 binutils binutils-aarch64-linux-gnu libc6-dev-arm64-cross libc6-dev-i386 zip
 
     - name: Setup Proton Clang Toolchain
       run: |
@@ -45,11 +45,7 @@ jobs:
         FILE="drivers/input/hx9023_sar/hx9023s.c"
         if [ -f "$FILE" ]; then
           echo "Applying patch to $FILE..."
-          
-          # 1. إضافة المكتبات المفقودة في بداية الملف
           sed -i '1i #include <linux/i2c.h>\n#include <linux/pm_wakeup.h>' "$FILE"
-          
-          # 2. إصلاح تعاريف حلقات التكرار لتتوافق مع معايير C للنواة
           sed -i 's/for (size_t index = 0;/size_t index; for (index = 0;/g' "$FILE"
           sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$FILE"
         fi
@@ -58,7 +54,7 @@ jobs:
       run: |
         cd kernel-source
 
-        # إعداد متغيرات البيئة المسارات
+        # إعداد متغيرات البيئة والمسارات
         export PATH="$HOME/proton-clang/bin:/usr/bin:/bin:$PATH"
         export LD_LIBRARY_PATH="$HOME/proton-clang/lib:/usr/aarch64-linux-gnu/lib:$LD_LIBRARY_PATH"
 
@@ -68,17 +64,33 @@ jobs:
         export HOSTCC=gcc
         export HOSTCXX=g++
         
-        # استخدام linker بالنظام لبناء أدوات الـ Host لتفادي تعارض libc
+        # استخدام linker النظام بشكل صريح لتفادي تعارض libc مع Proton Clang
         export HOSTLD=/usr/bin/ld
-        export LD=aarch64-linux-gnu-ld
+        export LD=/usr/bin/ld
         export CROSS_COMPILE=aarch64-linux-gnu-
 
-        # التجميع
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld a04_defconfig
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld KCFLAGS="-Wno-error" -j$(nproc)
+        # إجراء عملية التجميع مع تمرير المتغيرات المباشرة لـ make
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld a04_defconfig
+        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=/usr/bin/ld KCFLAGS="-Wno-error" -j$(nproc)
 
-    - name: Upload Kernel Artifact
+    - name: Package with AnyKernel3
+      run: |
+        # استنساخ AnyKernel3
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+
+        # نسخ الملف المجمع
+        cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/ || true
+
+        # إعداد ملف التهيئة الخاص بجهاز A04
+        cd AnyKernel3
+        sed -i 's/device.name1=/device.name1=a04/g' anykernel.sh
+        sed -i 's/block=/block=\/dev\/block\/by-name\/boot/g' anykernel.sh
+
+        # إنشاء ملف ZIP النهائي
+        zip -r9 "../AnyKernel3-Samsung-A04-ReSukiSU.zip" * -x .git README.md
+
+    - name: Upload AnyKernel3 Package
       uses: actions/upload-artifact@v4
       with:
-        name: Samsung-A04-ReSukiSU-Kernel
-        path: kernel-source/out/arch/arm64/boot/Image.gz-dtb
+        name: AnyKernel3-Samsung-A04-ReSukiSU
+        path: AnyKernel3-Samsung-A04-ReSukiSU.zip
