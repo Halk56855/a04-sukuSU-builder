@@ -128,7 +128,7 @@ jobs:
         cp security/selinux/ss/policydb.h security/selinux/include/policydb.h
         cp security/selinux/include/avc.h security/selinux/ss/avc.h
 
-        # 7. معالجة ReSukiSU compat للحقول غير المدعومة (inode & cred security pointers)
+        # 7. معالجة ReSukiSU compat للحقول غير المدعومة
         COMPAT_FILE="drivers/kernelsu/compat/kernel_compat.h"
         if [ -f "$COMPAT_FILE" ]; then
           echo "Patching $COMPAT_FILE for incompatible struct members..."
@@ -198,6 +198,7 @@ jobs:
           
           # Fix: no member named 'security' in 'struct cred'
           sed -i 's/current_security()/NULL/g' "$APP_PROFILE"
+          sed -i 's/const struct task_security_struct \*tsec = current_security();/const struct task_security_struct *tsec = NULL;/g' "$APP_PROFILE"
           
           # Fix: no member named 'mode' in 'struct seccomp'
           sed -i 's/!current->seccomp\.mode/1/g' "$APP_PROFILE"
@@ -205,6 +206,13 @@ jobs:
           
           # Fix: no member named 'filter' in 'struct seccomp'
           sed -i 's/current->seccomp\.filter = NULL/\/* seccomp filter cleared *\//g' "$APP_PROFILE"
+        fi
+
+        # Fix objsec.h macro accessing non-existent cred->security member
+        OBJSEC_FILE="security/selinux/include/objsec.h"
+        if [ -f "$OBJSEC_FILE" ]; then
+          echo "Patching $OBJSEC_FILE..."
+          sed -i 's/current_cred()->security/NULL/g' "$OBJSEC_FILE"
         fi
 
     - name: Build Kernel
