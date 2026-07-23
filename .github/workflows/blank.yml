@@ -60,7 +60,7 @@ jobs:
             'int ksu_handle_sepolicy(void) { return 0; }' > "$SEPOLICY_SRC"
         fi
 
-        # 4. إنشاء الترويسات المفقودة وتوليد flask.h المكتمل بجميع الكلاسات والأذونات
+        # 4. إنشاء الترويسات المفقودة وتوليد flask.h المكتمل
         mkdir -p include/linux
         if [ ! -f "include/linux/seccomp_types.h" ]; then
           printf '%s\n' \
@@ -72,7 +72,7 @@ jobs:
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
-        echo "Creating comprehensive stub flask.h header with missing security classes..."
+        echo "Creating comprehensive stub flask.h header with missing security classes & IDs..."
         printf '%s\n' \
           '#ifndef _FLASK_H_' \
           '#ifndef _SELINUX_FLASK_H_' \
@@ -95,6 +95,7 @@ jobs:
           '#define SECINITSID_KERNEL_ROLE 12' \
           '#define SECINITSID_KERNEL_USER 13' \
           '#define SECINITSID_ANY_SOCKET 14' \
+          '#define SECINITSID_DEVNULL 27' \
           '' \
           '/* Security Classes */' \
           '#define SECCLASS_SECURITY 1' \
@@ -222,11 +223,21 @@ jobs:
           '#define BPF__MAP_WRITE 3' \
           '#define BPF__PROG_LOAD 4' \
           '#define BPF__PROG_RUN 5' \
+          '#ifndef PERF_EVENT__OPEN' \
           '#define PERF_EVENT__OPEN 1' \
+          '#endif' \
+          '#ifndef PERF_EVENT__READ' \
           '#define PERF_EVENT__READ 2' \
+          '#endif' \
+          '#ifndef PERF_EVENT__WRITE' \
           '#define PERF_EVENT__WRITE 3' \
+          '#endif' \
+          '#ifndef PERF_EVENT__KERNEL' \
           '#define PERF_EVENT__KERNEL 4' \
+          '#endif' \
+          '#ifndef PERF_EVENT__TRACEPOINT' \
           '#define PERF_EVENT__TRACEPOINT 5' \
+          '#endif' \
           '' \
           '#endif' \
           '#endif' > security/selinux/include/flask.h
@@ -368,7 +379,7 @@ jobs:
         cd AnyKernel3
         rm -rf .git .github
 
-        zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * .zenflow* .gitignore 2>/dev/null || zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" *
+        zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * .zenflow* .gitignore 2>/devnull || zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" *
 
     - name: Upload AnyKernel3 Package
       uses: actions/upload-artifact@v4
