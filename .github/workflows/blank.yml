@@ -263,24 +263,26 @@ jobs:
 
     - name: Package with AnyKernel3
       run: |
-        # استنساخ المستودع المخصص لجهاز Samsung A04 مباشرة
         git clone --depth=1 https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
 
-        # نسخ ملف النواة المجمع إلى AnyKernel3
+        # 1. نسخ ملف النواة المجمع وتسميته Image مباشرة
         if [ -f "kernel-source/out/arch/arm64/boot/Image.gz-dtb" ]; then
-          cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
         elif [ -f "kernel-source/out/arch/arm64/boot/Image.gz" ]; then
-          cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/
+          cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
         elif [ -f "kernel-source/out/arch/arm64/boot/Image" ]; then
-          cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/
+          cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/Image
         else
           echo "Error: No compiled kernel Image found!" && exit 1
         fi
 
         cd AnyKernel3
 
-        # الضغط بدون المجلد المباشر لضمان توافق بنية الـ ZIP مع OrangeFox
-        zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" . -x "*.git*" "README.md" "*placeholder"
+        # 2. إزالة مجلد .git لتجنب تضمينه داخل الـ ZIP
+        rm -rf .git .github
+
+        # 3. الضغط مباشرة من جذر المجلد لضمان البنية الصحيحة المباشرة
+        zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * .zenflow* .gitignore 2>/dev/null || zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" *
 
     - name: Upload AnyKernel3 Package
       uses: actions/upload-artifact@v4
