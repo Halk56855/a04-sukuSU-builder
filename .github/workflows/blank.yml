@@ -60,7 +60,7 @@ jobs:
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
-        # إنشاء/تحديث policydb.h مع حقل policyvers
+        # إنشاء/تحديث policydb.h مع الهياكل والأعضاء الكاملة
         printf '%s\n' \
           '#ifndef _POLICYDB_H_' \
           '#define _POLICYDB_H_' \
@@ -68,13 +68,54 @@ jobs:
           '' \
           '#define POLICYDB_VERSION_XPERMS_IOCTL 30' \
           '' \
+          'struct symtab {' \
+          '    u32 nprim;' \
+          '};' \
+          '' \
+          'struct avtab_node {' \
+          '    struct avtab_node *next;' \
+          '    void *key;' \
+          '    void *datum;' \
+          '};' \
+          '' \
+          'struct avtab {' \
+          '    struct avtab_node **htable;' \
+          '    u32 nel;' \
+          '    u32 nslot;' \
+          '};' \
+          '' \
+          'struct class_datum {' \
+          '    char *name;' \
+          '    struct symtab permissions;' \
+          '    struct class_datum *comdatum;' \
+          '};' \
+          '' \
+          'struct type_datum {' \
+          '    char *name;' \
+          '};' \
+          '' \
+          'struct sidtab {' \
+          '    int dummy;' \
+          '};' \
+          '' \
           'struct policydb {' \
           '    u32 policyvers;' \
+          '    struct avtab te_avtab;' \
+          '    u32 len;' \
+          '    struct symtab p_types;' \
+          '    struct symtab p_classes;' \
           '    void ***sym_val_to_name;' \
           '};' \
           'typedef struct policydb policydb_t;' \
           '' \
           '#endif' > security/selinux/ss/policydb.h
+
+        # إنشاء services.h
+        printf '%s\n' \
+          '#ifndef _SERVICES_H_' \
+          '#define _SERVICES_H_' \
+          'struct sidtab;' \
+          '#endif' > security/selinux/ss/services.h
 
         # إنشاء flask.h
         printf '%s\n' \
@@ -136,6 +177,7 @@ jobs:
         cp security/selinux/include/av_permissions.h security/selinux/ss/av_permissions.h
         cp security/selinux/ss/policydb.h security/selinux/include/policydb.h
         cp security/selinux/include/avc.h security/selinux/ss/avc.h
+        cp security/selinux/ss/services.h security/selinux/include/services.h
 
         # ----------------------------------------------------
         # تطبيق الترقيعات لملفات KernelSU/ReSukiSU
@@ -170,17 +212,11 @@ jobs:
           echo "#endif" >> "$COMPAT_FILE"
         fi
 
-        # ترقيع selinux_hide.c و rules.c
+        # ترقيع selinux_hide.c
         HIDE_FILE="drivers/kernelsu/feature/selinux_hide.c"
         if [ -f "$HIDE_FILE" ]; then
           echo "Injecting missing SELinux defines into $HIDE_FILE..."
           sed -i '1i #ifndef SECINITSID_SECURITY\n#define SECINITSID_SECURITY 1\n#endif\n#ifndef SECURITY__CHECK_CONTEXT\n#define SECURITY__CHECK_CONTEXT 0\n#endif\n#ifndef SECURITY__COMPUTE_AV\n#define SECURITY__COMPUTE_AV 0\n#endif\n#ifndef PROCESS__SETCURRENT\n#define PROCESS__SETCURRENT 0\n#endif' "$HIDE_FILE"
-        fi
-
-        RULES_FILE="drivers/kernelsu/selinux/rules.c"
-        if [ -f "$RULES_FILE" ]; then
-          echo "Patching $RULES_FILE for policyvers compatibility..."
-          sed -i 's/db->policyvers/30/g' "$RULES_FILE" || true
         fi
         # ----------------------------------------------------
 
