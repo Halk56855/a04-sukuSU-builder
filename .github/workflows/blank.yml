@@ -28,36 +28,29 @@ jobs:
       run: |
         cd kernel-source
 
-        # 1. استنساخ SukiSU-Ultra مؤقتاً
+        # 1. استنساخ SukiSU-Ultra
         git clone --depth=1 https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_ksu || git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git temp_ksu
         
-        # 2. إنشاء المجلد الهدف ونسخ المحتويات بالكامل
+        # 2. نقل المجلدات
         mkdir -p drivers/kernelsu
         cp -a temp_ksu/kernel/. drivers/kernelsu/
         cp -r temp_ksu/.git drivers/kernelsu/
 
-        # 3. نقل مجلد uapi إذا كان موجوداً
         if [ -d "temp_ksu/uapi" ]; then
           echo "Copying root uapi directory..."
           cp -r temp_ksu/uapi drivers/kernelsu/
         fi
 
-        # إزالة المجلد المؤقت
         rm -rf temp_ksu
 
-        # ----------------------------------------------------
-        # 4. تعطيل الميزات غير المتوافقة للنوى غير القياسية (Non-GKI)
-        # ----------------------------------------------------
-        echo "Disabling non-compatible modules (selinux_hide & sepolicy)..."
-        
-        # تعطيل selinux_hide من ملفات Kbuild/Makefile
+        # 3. تعطيل selinux_hide وتجهيز sepolicy.c
+        echo "Disabling non-compatible modules..."
         find drivers/kernelsu/ -name "Kbuild" -exec sed -i 's/.*selinux_hide.*/# &/g' {} + || true
         find drivers/kernelsu/ -name "Makefile" -exec sed -i 's/.*selinux_hide.*/# &/g' {} + || true
 
-        # استبدال sepolicy.c بدوال وهمية (Stub) لمنع أخطاء SELinux Structs
         SEPOLICY_SRC=$(find drivers/kernelsu/ -name "sepolicy.c" | head -n 1)
         if [ -n "$SEPOLICY_SRC" ]; then
-          echo "Stubbing $SEPOLICY_SRC to pass non-GKI kernel compilation..."
+          echo "Stubbing $SEPOLICY_SRC..."
           printf '%s\n' \
             '#include <linux/types.h>' \
             '#include <linux/stdbool.h>' \
@@ -67,19 +60,15 @@ jobs:
             'int ksu_handle_sepolicy(void) { return 0; }' > "$SEPOLICY_SRC"
         fi
 
-        # ----------------------------------------------------
-        # 5. إنشاء الترويسات المفقودة (flask.h & seccomp_types.h)
-        # ----------------------------------------------------
+        # 4. إنشاء الترويسات المفقودة وتوليد flask.h الشامل
         mkdir -p include/linux
         if [ ! -f "include/linux/seccomp_types.h" ]; then
-          echo "Creating stub include/linux/seccomp_types.h..."
           printf '%s\n' \
             '#ifndef _LINUX_SECCOMP_TYPES_H' \
             '#define _LINUX_SECCOMP_TYPES_H' \
             '#endif' > include/linux/seccomp_types.h
         fi
 
-        # إنشاء مجلدات SELinux وإنشاء flask.h شاملاً التعرّفات المفقودة
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
@@ -95,6 +84,7 @@ jobs:
           '#define SECINITSID_SECURITY 2' \
           '#define SECINITSID_UNLABELED 3' \
           '#define SECINITSID_INIT 4' \
+          '#define SECINITSID_FILE 5' \
           '' \
           '#define SECCLASS_SECURITY 1' \
           '#define SECCLASS_PROCESS 2' \
@@ -126,6 +116,25 @@ jobs:
           '#define SECCLASS_NETLINK_AUDIT_SOCKET 28' \
           '#define SECCLASS_NETLINK_IP6FW_SOCKET 29' \
           '#define SECCLASS_NETLINK_DNRT_SOCKET 30' \
+          '#define SECCLASS_SCTPIP_SOCKET 31' \
+          '#define SECCLASS_SCTP_SOCKET 32' \
+          '#define SECCLASS_ICMP_SOCKET 33' \
+          '#define SECCLASS_DCCP_SOCKET 34' \
+          '#define SECCLASS_NETLINK_ISCSI_SOCKET 35' \
+          '#define SECCLASS_NETLINK_FIB_LOOKUP_SOCKET 36' \
+          '#define SECCLASS_NETLINK_CONNECTOR_SOCKET 37' \
+          '#define SECCLASS_NETLINK_NETFILTER_SOCKET 38' \
+          '#define SECCLASS_NETLINK_KOBJECT_UEVENT_SOCKET 39' \
+          '#define SECCLASS_NETLINK_GENERIC_SOCKET 40' \
+          '#define SECCLASS_NETLINK_SCSITRANSPORT_SOCKET 41' \
+          '#define SECCLASS_NETLINK_RDMA_SOCKET 42' \
+          '#define SECCLASS_NETLINK_CRYPTO_SOCKET 43' \
+          '#define SECCLASS_APPLETALK_SOCKET 44' \
+          '#define SECCLASS_AX25_SOCKET 45' \
+          '#define SECCLASS_IPX_SOCKET 46' \
+          '#define SECCLASS_NETROM_SOCKET 47' \
+          '#define SECCLASS_ATMPVC_SOCKET 48' \
+          '#define SECCLASS_X25_SOCKET 49' \
           '' \
           '#endif' \
           '#endif' > security/selinux/include/flask.h
@@ -133,11 +142,7 @@ jobs:
         cp security/selinux/include/flask.h security/selinux/flask.h || true
         cp security/selinux/include/flask.h security/selinux/ss/flask.h || true
 
-        # ----------------------------------------------------
-        # 6. تطبيق ترقيعات التوافق العامة
-        # ----------------------------------------------------
-        echo "Applying general compatibility patches..."
-        
+        # 5. ترقيعات التوافق
         find security/ -name "objsec.h" -exec sed -i 's/current_cred()->security/NULL/g' {} + || true
 
         APP_PROFILE="drivers/kernelsu/policy/app_profile.c"
@@ -159,63 +164,40 @@ jobs:
           echo "#endif" >> "$COMPAT_FILE"
         fi
 
-        # تعطيل فحص static_export_check.mk
         mkdir -p drivers/kernelsu/tools
         echo "# Bypassed SukiSU Integration Check" > drivers/kernelsu/tools/static_export_check.mk
 
-        # تحويل أخطاء Kbuild القاطعة إلى تحذيرات
         KBUILD_FILE="drivers/kernelsu/Kbuild"
         if [ -f "$KBUILD_FILE" ]; then
           sed -i 's/.*git submodule.*/# ignored/g' "$KBUILD_FILE"
           sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
-        # ربط SukiSU بملفات Makefile و Kconfig الرئيسية
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-        # إضافة إعدادات التكوين المبدئية
+        # إضافة الإعدادات إلى defconfig
         echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-SukiSU\"" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS_ALL=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_I2C=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_I2C_CHARDEV=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_SPI=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_SPI_MASTER=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_RTC_CLASS=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_RTC_LIB=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_RTC_DRV_GENERIC=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_RTC_HCTOSYS=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_PM=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_PM_SLEEP=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_PM_WAKELOCK=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_WAKELOCK=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_PERSISTENT_RAM=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_PSTORE=y" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_PSTORE_RAM=y" >> arch/arm64/configs/a04_defconfig
 
     - name: Apply Header & Driver Patches & Link Stubs
       run: |
         cd kernel-source
 
-        # 1. إصلاح تضمينات wakelock
         WAKELOCK_FILE="include/linux/wakelock.h"
         if [ -f "$WAKELOCK_FILE" ]; then
-          echo "Patching $WAKELOCK_FILE..."
           sed -i 's/#include <linux\/wakeup_source.h>/#include <linux\/pm_wakeup.h>/g' "$WAKELOCK_FILE"
         fi
 
-        # 2. إصلاح سائق hx9023s.c
         DRIVER_FILE="drivers/input/hx9023_sar/hx9023s.c"
         if [ -f "$DRIVER_FILE" ]; then
-          echo "Patching $DRIVER_FILE..."
           sed -i 's/#include <linux\/wakeup_source.h>/#include <linux\/pm_wakeup.h>/g' "$DRIVER_FILE"
           sed -i 's/for (size_t index = 0;/size_t index; for (index = 0;/g' "$DRIVER_FILE"
           sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$DRIVER_FILE"
         fi
 
-        # 3. إنشاء stubs ضعيفة (__weak) لمنع أخطاء Multiple Definition
         mkdir -p drivers/samsung
         printf '%s\n' \
           '#include <linux/types.h>' \
@@ -232,7 +214,6 @@ jobs:
           'void __attribute__((weak)) *persistent_ram_vmap(void *a, void *b, void *c) { return NULL; }' \
           'void __attribute__((weak)) *wakeup_source_trash = NULL;' > drivers/samsung/sec_compat_stubs.c
 
-        # إضافة الموديول الجديد إلى Makefile
         if [ -f "drivers/samsung/Makefile" ]; then
           echo "obj-y += sec_compat_stubs.o" >> drivers/samsung/Makefile
         else
@@ -273,16 +254,6 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_KSU
-          ./scripts/config --file out/.config --enable CONFIG_SPI
-          ./scripts/config --file out/.config --enable CONFIG_SPI_MASTER
-          ./scripts/config --file out/.config --enable CONFIG_RTC_CLASS
-          ./scripts/config --file out/.config --enable CONFIG_RTC_LIB
-          ./scripts/config --file out/.config --enable CONFIG_RTC_DRV_GENERIC
-          ./scripts/config --file out/.config --enable CONFIG_RTC_HCTOSYS
-          ./scripts/config --file out/.config --enable CONFIG_PERSISTENT_RAM
-          ./scripts/config --file out/.config --enable CONFIG_PM_WAKELOCK
-          ./scripts/config --file out/.config --enable CONFIG_PSTORE
-          ./scripts/config --file out/.config --enable CONFIG_PSTORE_RAM
           make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" olddefconfig
         fi
 
@@ -303,7 +274,6 @@ jobs:
         fi
 
         cd AnyKernel3
-
         rm -rf .git .github
 
         zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * .zenflow* .gitignore 2>/dev/null || zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" *
