@@ -28,10 +28,18 @@ jobs:
       run: |
         cd kernel-source
 
-        # استنساخ ReSukiSU مباشرة وإزالة قيود submodule
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git drivers/kernelsu
+        # استنساخ ReSukiSU مؤقتاً
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git temp_ksu
         
-        # تعطيل فحص git submodule داخل Kbuild الخاص بـ ReSukiSU إن وجد
+        # إنشاء المجلد الرئيسي للنواة
+        mkdir -p drivers/kernelsu
+        
+        # نقل محتويات مجلد kernel و مجلد .git لضمان تجاوز فحص git submodule
+        cp -r temp_ksu/kernel/* drivers/kernelsu/
+        cp -r temp_ksu/.git drivers/kernelsu/
+        rm -rf temp_ksu
+
+        # تعطيل أي فحص متزمت لـ git submodule داخل Kbuild إن وجد
         if [ -f "drivers/kernelsu/Kbuild" ]; then
           sed -i 's/.*git submodule.*/# ignored/g' drivers/kernelsu/Kbuild
         fi
