@@ -147,7 +147,7 @@ jobs:
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-        # إضافة إعدادات التكوين المبدئية وخيارات RTC + SPI المطلوبة
+        # إضافة إعدادات التكوين المبدئية
         echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-SukiSU\"" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig
         echo "CONFIG_KALLSYMS=y" >> arch/arm64/configs/a04_defconfig
@@ -268,8 +268,13 @@ jobs:
         cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/ || true
 
         cd AnyKernel3
-        sed -i 's/device.name1=/device.name1=a04/g' anykernel.sh
-        sed -i 's/block=/block=\/dev\/block\/by-name\/boot/g' anykernel.sh
+        # إضافة كافة تسميات وموديلات Samsung A04 لضمان التوافق مع OrangeFox والـ ROM
+        sed -i 's/device.name1=.*/device.name1=a04/g' anykernel.sh
+        sed -i 's/device.name2=.*/device.name2=a04xx/g' anykernel.sh
+        sed -i 's/device.name3=.*/device.name3=A045F/g' anykernel.sh
+        sed -i 's/device.name4=.*/device.name4=a045f/g' anykernel.sh
+        sed -i 's/device.name5=.*/device.name5=A04/g' anykernel.sh
+        sed -i 's|block=.*|block=/dev/block/by-name/boot;|g' anykernel.sh
 
         zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * -x .git README.md
 
