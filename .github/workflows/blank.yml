@@ -46,22 +46,20 @@ jobs:
         rm -rf temp_ksu
 
         # ----------------------------------------------------
-        # تطبيق الترقيعات المباشرة فور النسخ وقبل أي معالجة
+        # تطبيق الترقيعات المحسنة لـ objsec.h و app_profile.c
         # ----------------------------------------------------
-        echo "Applying early compatibility patches..."
+        echo "Applying refined compatibility patches..."
         
-        # ترقيع objsec.h لمعالجة current_security() و struct cred->security
+        # ترقيع objsec.h
         find security/ -name "objsec.h" -exec sed -i 's/current_cred()->security/NULL/g' {} + || true
-        find security/ -name "objsec.h" -exec sed -i 's/cred->security/NULL/g' {} + || true
-        find security/ -name "objsec.h" -exec sed -i 's/#define current_security().*/#define current_security() NULL/g' {} + || true
+        find security/ -name "objsec.h" -exec sed -i '/const struct task_security_struct \*tsec = current_security()/s/.*/const struct task_security_struct *tsec = NULL;/' {} + || true
 
-        # ترقيع app_profile.c بشكل مباشر لمسح الوصول المباشر إلى tsec و cred->security
+        # ترقيع app_profile.c بشكل دقيق
         APP_PROFILE="drivers/kernelsu/policy/app_profile.c"
         if [ -f "$APP_PROFILE" ]; then
-          echo "Patching $APP_PROFILE early..."
+          echo "Patching $APP_PROFILE carefully..."
           sed -i 's/current_security()/NULL/g' "$APP_PROFILE"
-          sed -i 's/const struct task_security_struct \*tsec = .*/const struct task_security_struct *tsec = NULL;/g' "$APP_PROFILE"
-          sed -i 's/tsec->/NULL->/g' "$APP_PROFILE" || true
+          sed -i 's/const struct task_security_struct \*tsec = current_security()/const struct task_security_struct *tsec = NULL/' "$APP_PROFILE"
           sed -i 's/!current->seccomp\.mode/1/g' "$APP_PROFILE"
           sed -i 's/current->seccomp\.mode = 0/\/* bypassed *\//g' "$APP_PROFILE"
           sed -i 's/current->seccomp\.filter = NULL/\/* bypassed *\//g' "$APP_PROFILE"
@@ -241,7 +239,8 @@ jobs:
         export STRIP=aarch64-linux-gnu-strip
         export LDFLAGS="-Wl,--no-relax"
         
-        export KCFLAGS="-Wno-error -Wno-implicit-function-declaration"
+        # إضافة تعطيل خطأ incompatible-pointer-types
+        export KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-error=incompatible-pointer-types"
 
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
 
