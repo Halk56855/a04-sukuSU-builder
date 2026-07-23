@@ -37,7 +37,7 @@ jobs:
         cp -r temp_ksu/.git drivers/kernelsu/
         rm -rf temp_ksu
 
-        # 3. تعطيل أي فحص متزمت لـ git submodule داخل Kbuild إن وجد
+        # 3. تعطيل أي فحص متزمت لـ git submodule داخل Kbuild
         if [ -f "drivers/kernelsu/Kbuild" ]; then
           sed -i 's/.*git submodule.*/# ignored/g' drivers/kernelsu/Kbuild
         fi
@@ -46,31 +46,32 @@ jobs:
         echo "obj-y += kernelsu/" >> drivers/Makefile
         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-        # 5. إضافة إعدادات التكوين المبدئية إلى defconfig
+        # 5. إضافة إعدادات التكوين المبدئية إلى defconfig قبل تشغيل make
         echo "CONFIG_LOCALVERSION=\"-TragicHorizon-v3-r1\"" >> arch/arm64/configs/a04_defconfig
-        echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig || true
-        echo "CONFIG_KALLSYMS=y" >> arch/arm64/configs/a04_defconfig || true
-        echo "CONFIG_KALLSYMS_ALL=y" >> arch/arm64/configs/a04_defconfig || true
-        echo "CONFIG_I2C=y" >> arch/arm64/configs/a04_defconfig || true
-        echo "CONFIG_I2C_CHARDEV=y" >> arch/arm64/configs/a04_defconfig || true
-        echo "CONFIG_PM=y" >> arch/arm64/configs/a04_defconfig || true
-        echo "CONFIG_PM_SLEEP=y" >> arch/arm64/configs/a04_defconfig || true
-        echo "CONFIG_WAKELOCK=y" >> arch/arm64/configs/a04_defconfig || true
+        echo "CONFIG_KSU=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_KALLSYMS=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_KALLSYMS_ALL=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_I2C=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_I2C_CHARDEV=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_PM=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_PM_SLEEP=y" >> arch/arm64/configs/a04_defconfig
+        echo "CONFIG_WAKELOCK=y" >> arch/arm64/configs/a04_defconfig
 
     - name: Apply Header, Driver & SELinux Patches
       run: |
         cd kernel-source
 
-        # 1. إصلاح وتصدير رمز sel_handle_status_ops في SELinux
+        # 1. تصدير رمز sel_handle_status_ops فوراً بعد تعريفه في SELinux
         SELINUX_FILE="security/selinux/selinuxfs.c"
         if [ -f "$SELINUX_FILE" ]; then
           echo "Patching $SELINUX_FILE for ReSukiSU symbol export..."
-          # إزالة static ليصبح الرمز قابلاً للتصدير للعامة
+          
+          # إزالة static للرمز
           sed -i 's/static const struct seq_operations sel_handle_status_ops/const struct seq_operations sel_handle_status_ops/g' "$SELINUX_FILE"
           
-          # إدراج EXPORT_SYMBOL إذا لم يكن موجوداً
+          # إضافة EXPORT_SYMBOL بعد السطر المعرف للبنية مباشرة
           if ! grep -q "EXPORT_SYMBOL(sel_handle_status_ops)" "$SELINUX_FILE"; then
-            echo -e "\n#include <linux/export.h>\nEXPORT_SYMBOL(sel_handle_status_ops);" >> "$SELINUX_FILE"
+            sed -i '/^const struct seq_operations sel_handle_status_ops/a EXPORT_SYMBOL(sel_handle_status_ops);' "$SELINUX_FILE"
           fi
         fi
 
@@ -114,19 +115,15 @@ jobs:
         export LDFLAGS="-Wl,--no-relax"
         export KCFLAGS="-Wno-error -Wno-implicit-function-declaration"
 
-        # إنشاء التهيئة المبدئية
+        # إنشاء التهيئة المبدئية (تحتوي بالفعل على الخيارات المضافة في الخطوة السابقة)
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
 
-        # تفعيل الخيارات الرسمية وتحديث شجرة الاعتماديات
+        # تأكيد الخيارات رسمياً عبر scripts/config و olddefconfig
         if [ -f "scripts/config" ]; then
           ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-TragicHorizon-v3-r1"
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_KSU
-          ./scripts/config --file out/.config --enable CONFIG_I2C
-          ./scripts/config --file out/.config --enable CONFIG_PM
-          ./scripts/config --file out/.config --enable CONFIG_PM_SLEEP
-          ./scripts/config --file out/.config --enable CONFIG_WAKELOCK
           make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" olddefconfig
         fi
 
