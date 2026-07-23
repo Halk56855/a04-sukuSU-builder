@@ -95,6 +95,9 @@ jobs:
           '#define SECINITSID_KERNEL_ROLE 12' \
           '#define SECINITSID_KERNEL_USER 13' \
           '#define SECINITSID_ANY_SOCKET 14' \
+          '#define SECINITSID_PORT 15' \
+          '#define SECINITSID_NETIF 16' \
+          '#define SECINITSID_NODE 17' \
           '#define SECINITSID_DEVNULL 27' \
           '' \
           '/* Security Classes */' \
