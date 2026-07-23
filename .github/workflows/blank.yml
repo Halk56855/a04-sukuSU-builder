@@ -43,7 +43,10 @@ jobs:
 
         rm -rf temp_ksu
 
-        # 3. تعطيل selinux_hide وتجهيز sepolicy.c
+        # 3. معالجة MODULE_IMPORT_NS وتسطيح selinux
+        echo "Bypassing unsupported MODULE_IMPORT_NS macros in KernelSU..."
+        find drivers/kernelsu/ -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS.*/\/* MODULE_IMPORT_NS bypassed *\//g' {} + || true
+
         echo "Disabling non-compatible modules..."
         find drivers/kernelsu/ -name "Kbuild" -exec sed -i 's/.*selinux_hide.*/# &/g' {} + || true
         find drivers/kernelsu/ -name "Makefile" -exec sed -i 's/.*selinux_hide.*/# &/g' {} + || true
@@ -292,6 +295,9 @@ jobs:
       run: |
         cd kernel-source
 
+        # إصلاح خطأ strict prototypes في input_booster
+        find drivers/input/ -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/int is_ib_init_succeed()/int is_ib_init_succeed(void)/g' {} + || true
+
         WAKELOCK_FILE="include/linux/wakelock.h"
         if [ -f "$WAKELOCK_FILE" ]; then
           sed -i 's/#include <linux\/wakeup_source.h>/#include <linux\/pm_wakeup.h>/g' "$WAKELOCK_FILE"
@@ -351,7 +357,7 @@ jobs:
         export STRIP=aarch64-linux-gnu-strip
         export LDFLAGS="-Wl,--no-relax"
         
-        export KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-error=incompatible-pointer-types"
+        export KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=strict-prototypes"
 
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
 
