@@ -36,7 +36,7 @@ jobs:
         cp -a temp_ksu/kernel/. drivers/kernelsu/
         cp -r temp_ksu/.git drivers/kernelsu/
 
-        # 3. التأكد من نقل مجلد uapi إذا كان موجوداً في المستوى الرئيسي للمستودع
+        # 3. نقل مجلد uapi إذا كان موجوداً
         if [ -d "temp_ksu/uapi" ]; then
           echo "Copying root uapi directory..."
           cp -r temp_ksu/uapi drivers/kernelsu/
@@ -49,7 +49,7 @@ jobs:
         mkdir -p drivers/kernelsu/tools
         echo "# Bypassed ReSukiSU Integration Check" > drivers/kernelsu/tools/static_export_check.mk
 
-        # 5. تحويل أي أخطاء قاطعة داخل Kbuild إلى تحذيرات عابرة
+        # 5. تحويل الأخطاء القاطعة داخل Kbuild إلى تحذيرات
         KBUILD_FILE="drivers/kernelsu/Kbuild"
         if [ -f "$KBUILD_FILE" ]; then
           echo "Patching $KBUILD_FILE to disable fatal error stops..."
@@ -57,7 +57,7 @@ jobs:
           sed -i 's/\$(error/\$(warning/g' "$KBUILD_FILE"
         fi
 
-        # 6. إصلاح مسارات تضمين SELinux داخل ReSukiSU باستخدام grep للوصول المباشر
+        # 6. تعديل مسارات تضمين SELinux داخل ReSukiSU لتشير إلى مسار النواة القياسي
         grep -rl '#include "flask.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "flask.h"|#include <security/selinux/ss/flask.h>|g' || true
         grep -rl '#include "policydb.h"' drivers/kernelsu/ | xargs -r sed -i 's|#include "policydb.h"|#include <security/selinux/ss/policydb.h>|g' || true
 
@@ -80,13 +80,11 @@ jobs:
       run: |
         cd kernel-source
 
-        # 1. تصدير رمز sel_handle_status_ops فوراً بعد تعريفه في SELinux
+        # 1. تصدير رمز sel_handle_status_ops في SELinux
         SELINUX_FILE="security/selinux/selinuxfs.c"
         if [ -f "$SELINUX_FILE" ]; then
           echo "Patching $SELINUX_FILE for ReSukiSU symbol export..."
-          
           sed -i 's/static const struct seq_operations sel_handle_status_ops/const struct seq_operations sel_handle_status_ops/g' "$SELINUX_FILE"
-          
           if ! grep -q "EXPORT_SYMBOL(sel_handle_status_ops)" "$SELINUX_FILE"; then
             sed -i '/^const struct seq_operations sel_handle_status_ops/a EXPORT_SYMBOL(sel_handle_status_ops);' "$SELINUX_FILE"
           fi
@@ -130,8 +128,8 @@ jobs:
         export STRIP=aarch64-linux-gnu-strip
         export LDFLAGS="-Wl,--no-relax"
         
-        # إضافة مسارات include الخاصة بـ SELinux لـ KCFLAGS
-        export KCFLAGS="-Wno-error -Wno-implicit-function-declaration -I$(pwd)/security/selinux -I$(pwd)/security/selinux/ss -I$(pwd)/security/selinux/include"
+        # إزالة مسارات include الخاصة بـ SELinux لمنع تداخل التضمينات أثناء بناء النواة
+        export KCFLAGS="-Wno-error -Wno-implicit-function-declaration"
 
         make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
 
