@@ -182,21 +182,22 @@ jobs:
           sed -i 's/for (int i = 0;/int i; for (i = 0;/g' "$DRIVER_FILE"
         fi
 
-        # 3. إنشاء stubs شاملة لجميع الرموز المفقودة أثناء الربط النهائي
+        # 3. إنشاء stubs ضعيفة (__weak) لمنع حدوث أخطاء Multiple Definition
         mkdir -p drivers/samsung
         printf '%s\n' \
           '#include <linux/types.h>' \
           '#include <linux/kernel.h>' \
+          '#include <linux/compiler.h>' \
           '' \
-          'char mboot_params_buffer[1024] = {0};' \
+          'char __attribute__((weak)) mboot_params_buffer[1024] = {0};' \
           '' \
-          'void __inner_flush_dcache_all(void) {}' \
+          'void __attribute__((weak)) __inner_flush_dcache_all(void) {}' \
           '' \
-          'int mtk_pmic_pwrkey_status(void) { return 0; }' \
-          'int mtk_pmic_homekey_status(void) { return 0; }' \
+          'int __attribute__((weak)) mtk_pmic_pwrkey_status(void) { return 0; }' \
+          'int __attribute__((weak)) mtk_pmic_homekey_status(void) { return 0; }' \
           '' \
-          'void *persistent_ram_vmap(void *a, void *b, void *c) { return NULL; }' \
-          'void *wakeup_source_trash = NULL;' > drivers/samsung/sec_compat_stubs.c
+          'void __attribute__((weak)) *persistent_ram_vmap(void *a, void *b, void *c) { return NULL; }' \
+          'void __attribute__((weak)) *wakeup_source_trash = NULL;' > drivers/samsung/sec_compat_stubs.c
 
         # إضافة الموديول الجديد إلى Makefile
         if [ -f "drivers/samsung/Makefile" ]; then
