@@ -72,7 +72,7 @@ jobs:
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
-        echo "Creating comprehensive stub flask.h header..."
+        echo "Creating comprehensive stub flask.h header with socket classes..."
         printf '%s\n' \
           '#ifndef _FLASK_H_' \
           '#ifndef _SELINUX_FLASK_H_' \
@@ -135,6 +135,28 @@ jobs:
           '#define SECCLASS_NETROM_SOCKET 47' \
           '#define SECCLASS_ATMPVC_SOCKET 48' \
           '#define SECCLASS_X25_SOCKET 49' \
+          '#define SECCLASS_ROSE_SOCKET 50' \
+          '#define SECCLASS_DECNET_SOCKET 51' \
+          '#define SECCLASS_ATMSVC_SOCKET 52' \
+          '#define SECCLASS_RDS_SOCKET 53' \
+          '#define SECCLASS_IRDA_SOCKET 54' \
+          '#define SECCLASS_PPPOX_SOCKET 55' \
+          '#define SECCLASS_LLC_SOCKET 56' \
+          '#define SECCLASS_CAN_SOCKET 57' \
+          '#define SECCLASS_TIPC_SOCKET 58' \
+          '#define SECCLASS_BLUETOOTH_SOCKET 59' \
+          '#define SECCLASS_IUCV_SOCKET 60' \
+          '#define SECCLASS_RXTX_SOCKET 61' \
+          '#define SECCLASS_PHONET_SOCKET 62' \
+          '#define SECCLASS_IEEE802154_SOCKET 63' \
+          '#define SECCLASS_CAIF_SOCKET 64' \
+          '#define SECCLASS_ALG_SOCKET 65' \
+          '#define SECCLASS_NFC_SOCKET 66' \
+          '#define SECCLASS_VSOCK_SOCKET 67' \
+          '#define SECCLASS_KCM_SOCKET 68' \
+          '#define SECCLASS_QIPCRTR_SOCKET 69' \
+          '#define SECCLASS_SMC_SOCKET 70' \
+          '#define SECCLASS_XDP_SOCKET 71' \
           '' \
           '#endif' \
           '#endif' > security/selinux/include/flask.h
