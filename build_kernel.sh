@@ -9,22 +9,27 @@ set -o pipefail
 # Packaging: AnyKernel3 Zip
 # ==============================================================================
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "${SCRIPT_DIR}/scripts/lib.sh"
+
 WORK_DIR="$(pwd)"
 KERNEL_DIR="${WORK_DIR}/kernel"
 OUTPUT_DIR="${WORK_DIR}/output"
 TOOLCHAIN_DIR="${WORK_DIR}/toolchains"
 JOBS=$(nproc --all 2>/dev/null || echo 4)
 
-GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
-log()  { echo -e "${GREEN}[+]${NC} $1"; }
-warn() { echo -e "${YELLOW}[!]${NC} $1" >&2; }
-err()  { echo -e "${RED}[x]${NC} $1" >&2; exit 1; }
+# make wrapper carrying the shared kernel build options and toolchain.
+kmake() {
+    make -C "$KERNEL_DIR" O="$KERNEL_DIR/out" KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+        ARCH=arm64 CC="${CC}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" "$@"
+}
 
 download_kernel_source() {
     [ -f "$KERNEL_DIR/Makefile" ] && return
     log "Cloning Samsung Galaxy A04 kernel source..."
     mkdir -p "$KERNEL_DIR"
-    git clone --depth=1 -b latest-B https://github.com/rsuntk-oss/android_kernel_samsung_a04m.git "$KERNEL_DIR" \
+    clone_shallow https://github.com/rsuntk-oss/android_kernel_samsung_a04m.git "$KERNEL_DIR" latest-B \
         || err "Failed to clone kernel source"
     [ -f "$KERNEL_DIR/Makefile" ] || err "Kernel source clone did not produce a Makefile in $KERNEL_DIR"
 }
@@ -36,21 +41,16 @@ setup_toolchains() {
     local MIRROR_BASE=https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains
 
     if [ ! -f "clang-r383902/bin/clang" ]; then
-        mkdir -p clang-r383902
-        curl -fL -o clang.tar.gz "${MIRROR_BASE}/clang-r383902b.tar.gz" \
-            || err "Failed to download Clang toolchain"
-        tar -xzf clang.tar.gz -C clang-r383902 || err "Failed to extract Clang toolchain"
-        rm -f clang.tar.gz
+        fetch_tar clang-r383902 "${MIRROR_BASE}/clang-r383902b.tar.gz" \
+            || err "Failed to download or extract Clang toolchain"
         [ -x "clang-r383902/bin/clang" ] || err "Clang binary missing after extraction"
     fi
 
     if [ ! -f "aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-ld" ]; then
-        curl -fL -o gcc.tar.gz "${MIRROR_BASE}/aarch64-linux-android-4.9.tar.gz" \
-            || curl -fL -o gcc.tar.gz "${MIRROR_BASE}/aarch64-linux-android-4.9-Linux-5.4.tar.gz" \
-            || err "Failed to download GCC toolchain"
-        mkdir -p gcc_temp
-        tar -xzf gcc.tar.gz -C gcc_temp || err "Failed to extract GCC toolchain"
-        rm -f gcc.tar.gz
+        fetch_tar gcc_temp \
+            "${MIRROR_BASE}/aarch64-linux-android-4.9.tar.gz" \
+            "${MIRROR_BASE}/aarch64-linux-android-4.9-Linux-5.4.tar.gz" \
+            || err "Failed to download or extract GCC toolchain"
         local GCC_BIN_DIR
         GCC_BIN_DIR=$(find gcc_temp -type d -name "bin" -path "*/aarch64-linux-android-4.9/bin" | head -1)
         [ -n "$GCC_BIN_DIR" ] || err "Could not locate GCC bin directory in extracted toolchain"
@@ -69,11 +69,11 @@ setup_toolchains() {
 
 apply_419_compat_patches() {
     local dir="$1"
-    find "$dir" -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + \
+    sed_c_h "$dir" 's/\baccess_ok(/access_ok(0, /g' \
         || err "Failed to apply access_ok compatibility patch in ${dir}"
-    find "$dir" -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + \
+    sed_c_h "$dir" 's/MODULE_IMPORT_NS/\/\//g' \
         || err "Failed to apply MODULE_IMPORT_NS compatibility patch in ${dir}"
-    find "$dir" -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + \
+    sed_c_h "$dir" 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' \
         || err "Failed to apply pgtable.h compatibility patch in ${dir}"
 }
 
@@ -111,7 +111,7 @@ integrate_susfs_and_sukisu() {
     # 1. تحميل رقع SUSFS الرسمية
     if [ ! -d "susfs4ksu" ]; then
         log "Cloning susfs4ksu repository..."
-        git clone https://gitlab.com/simonpunk/susfs4ksu.git --depth=1 susfs4ksu
+        clone_shallow https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
     fi
 
     cd "$KERNEL_DIR"
@@ -119,7 +119,7 @@ integrate_susfs_and_sukisu() {
     # 2. إصلاح وحدة الاتصال لمعالجات MediaTek
     if [ -d "drivers/misc/mediatek/connectivity" ]; then
         rm -rf drivers/misc/mediatek/connectivity
-        git clone --depth=1 https://github.com/rsuntkOrgs/mtk_connectivity_module.git -b staging-4.14 drivers/misc/mediatek/connectivity \
+        clone_shallow https://github.com/rsuntkOrgs/mtk_connectivity_module.git drivers/misc/mediatek/connectivity staging-4.14 \
             || err "Failed to clone MediaTek connectivity module (original module was removed)"
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
@@ -175,9 +175,7 @@ configure_kernel() {
     export CC="${TOOLCHAIN_DIR}/clang-r383902/bin/clang"
     export CLANG_TRIPLE="aarch64-linux-gnu-"
 
-    local MAKE_OPTS=( -C "$(pwd)" O="$(pwd)/out" KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y ARCH=arm64 CC="${CC}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" )
-
-    make "${MAKE_OPTS[@]}" a04_defconfig
+    kmake a04_defconfig
 
     # تفعيل الخيارات المطلوبة
     scripts/config --file out/.config --enable CONFIG_KSU
@@ -197,15 +195,14 @@ configure_kernel() {
     scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-SUSFS-A04"
     scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
 
-    make "${MAKE_OPTS[@]}" olddefconfig || err "Failed to finalize kernel config (olddefconfig)"
+    kmake olddefconfig || err "Failed to finalize kernel config (olddefconfig)"
 }
 
 build_kernel() {
     log "Building kernel with ${JOBS} threads..."
     cd "$KERNEL_DIR"
-    local MAKE_OPTS=( -C "$(pwd)" O="$(pwd)/out" KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y ARCH=arm64 CC="${CC}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" )
 
-    make "${MAKE_OPTS[@]}" -j"${JOBS}" 2>&1 | tee "${OUTPUT_DIR}/build.log" || make "${MAKE_OPTS[@]}" -j1 2>&1 | tee -a "${OUTPUT_DIR}/build.log"
+    kmake -j"${JOBS}" 2>&1 | tee "${OUTPUT_DIR}/build.log" || kmake -j1 2>&1 | tee -a "${OUTPUT_DIR}/build.log"
     if [ -f "out/arch/arm64/boot/Image" ]; then
         cp "out/arch/arm64/boot/Image" "arch/arm64/boot/Image" || err "Failed to copy built kernel Image"
     else
@@ -218,7 +215,7 @@ package_kernel() {
     mkdir -p "$OUTPUT_DIR"
     cd "$WORK_DIR"
     rm -rf AnyKernel3
-    git clone https://github.com/osm0sis/AnyKernel3.git --depth=1 AnyKernel3 \
+    clone_shallow https://github.com/osm0sis/AnyKernel3.git AnyKernel3 \
         || err "Failed to clone AnyKernel3"
 
     local img_copied=0

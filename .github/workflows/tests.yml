@@ -18,7 +18,7 @@ jobs:
           sudo apt-get install -y shellcheck
 
       - name: Run ShellCheck
-        run: shellcheck build_kernel.sh tests/test_helper.bash
+        run: shellcheck -x build_kernel.sh scripts/lib.sh tests/test_helper.bash
 
   bats:
     runs-on: ubuntu-latest
