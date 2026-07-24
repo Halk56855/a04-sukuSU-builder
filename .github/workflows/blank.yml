@@ -72,7 +72,7 @@ jobs:
           sed -i 's/.*REMAP_FILE_DEDUP.*/\/* REMAP_FILE_DEDUP bypassed *\//g' "$FILE_WRAPPER" || true
         fi
 
-        # 5. إنشاء الترويسات المفقودة (seccomp_types.h و pgtable.h) وتوليد flask.h
+        # 5. إنشاء الترويسات المفقودة وتوليد flask.h الشامل
         mkdir -p include/linux
         if [ ! -f "include/linux/seccomp_types.h" ]; then
           printf '%s\n' \
@@ -93,13 +93,14 @@ jobs:
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
-        echo "Creating comprehensive stub flask.h header..."
+        echo "Creating comprehensive stub flask.h header with missing socket security classes..."
         printf '%s\n' \
           '#ifndef _FLASK_H_' \
           '#ifndef _SELINUX_FLASK_H_' \
           '#define _FLASK_H_' \
           '#define _SELINUX_FLASK_H_' \
           '' \
+          '/* Security Init IDs */' \
           '#define SECINITSID_NUM 27' \
           '#define SECINITSID_KERNEL 1' \
           '#define SECINITSID_SECURITY 2' \
@@ -120,6 +121,7 @@ jobs:
           '#define SECINITSID_NODE 17' \
           '#define SECINITSID_DEVNULL 27' \
           '' \
+          '/* Security Classes */' \
           '#define SECCLASS_SECURITY 1' \
           '#define SECCLASS_PROCESS 2' \
           '#define SECCLASS_SYSTEM 3' \
@@ -136,8 +138,29 @@ jobs:
           '#define SECCLASS_SOCKET 14' \
           '#define SECCLASS_TCP_SOCKET 15' \
           '#define SECCLASS_UDP_SOCKET 16' \
+          '#define SECCLASS_RAWIP_SOCKET 17' \
+          '#define SECCLASS_NETLINK_SOCKET 18' \
+          '#define SECCLASS_PACKET_SOCKET 19' \
+          '#define SECCLASS_KEY_SOCKET 20' \
+          '#define SECCLASS_UNIX_STREAM_SOCKET 21' \
+          '#define SECCLASS_UNIX_DGRAM_SOCKET 22' \
+          '#define SECCLASS_SCTP_SOCKET 23' \
+          '#define SECCLASS_ICMP_SOCKET 24' \
+          '#define SECCLASS_DCCP_SOCKET 25' \
+          '#define SECCLASS_NETLINK_ROUTE_SOCKET 26' \
+          '#define SECCLASS_NETLINK_TCPDIAG_SOCKET 27' \
+          '#define SECCLASS_NETLINK_NFLOG_SOCKET 28' \
+          '#define SECCLASS_NETLINK_XFRM_SOCKET 29' \
+          '#define SECCLASS_NETLINK_SELINUX_SOCKET 30' \
+          '#define SECCLASS_NETLINK_ISCSI_SOCKET 31' \
+          '#define SECCLASS_NETLINK_AUDIT_SOCKET 32' \
+          '#define SECCLASS_NETLINK_FIB_LOOKUP_SOCKET 33' \
+          '#define SECCLASS_NETLINK_CONNECTOR_SOCKET 34' \
+          '#define SECCLASS_NETLINK_NETFILTER_SOCKET 35' \
+          '#define SECCLASS_NETLINK_DNRT_SOCKET 36' \
           '#define SECCLASS_BINDER 78' \
           '' \
+          '/* Permission definitions */' \
           '#define BINDER__CALL 1' \
           '#define BINDER__TRANSFER 2' \
           '#define FD__USE 1' \
