@@ -18,18 +18,21 @@ jobs:
 
     - name: Setup Proton Clang Toolchain
       run: |
-        git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$HOME/proton-clang"
+        source "$GITHUB_WORKSPACE/scripts/lib.sh"
+        clone_shallow https://github.com/kdrag0n/proton-clang.git "$HOME/proton-clang"
 
     - name: Clone Kernel Source
       run: |
-        git clone -b latest-B --depth=1 https://github.com/rsuntk-oss/android_kernel_samsung_a04m.git kernel-source
+        source "$GITHUB_WORKSPACE/scripts/lib.sh"
+        clone_shallow https://github.com/rsuntk-oss/android_kernel_samsung_a04m.git kernel-source latest-B
 
     - name: Integrate SukiSU-Ultra & Custom Configurations
       run: |
+        source "$GITHUB_WORKSPACE/scripts/lib.sh"
         cd kernel-source
 
         # 1. استنساخ SukiSU-Ultra
-        git clone --depth=1 https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_ksu || git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git temp_ksu
+        clone_shallow https://github.com/SukiSU-Ultra/SukiSU-Ultra.git temp_ksu || clone_shallow https://github.com/ReSukiSU/ReSukiSU.git temp_ksu
         
         # 2. نقل المجلدات
         mkdir -p drivers/kernelsu
@@ -45,7 +48,7 @@ jobs:
 
         # 3. معالجة MODULE_IMPORT_NS وتسطيح selinux
         echo "Bypassing unsupported MODULE_IMPORT_NS macros in KernelSU..."
-        find drivers/kernelsu/ -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS.*/\/* MODULE_IMPORT_NS bypassed *\//g' {} + || true
+        sed_c_h drivers/kernelsu/ 's/MODULE_IMPORT_NS.*/\/* MODULE_IMPORT_NS bypassed *\//g' || true
 
         echo "Disabling non-compatible modules..."
         find drivers/kernelsu/ -name "Kbuild" -exec sed -i 's/.*selinux_hide.*/# &/g' {} + || true
@@ -260,10 +263,11 @@ jobs:
 
     - name: Apply Header & Driver Patches & Link Stubs
       run: |
+        source "$GITHUB_WORKSPACE/scripts/lib.sh"
         cd kernel-source
 
         # إصلاح خطأ strict prototypes في input_booster
-        find drivers/input/ -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/int is_ib_init_succeed()/int is_ib_init_succeed(void)/g' {} + || true
+        sed_c_h drivers/input/ 's/int is_ib_init_succeed()/int is_ib_init_succeed(void)/g' || true
 
         WAKELOCK_FILE="include/linux/wakelock.h"
         if [ -f "$WAKELOCK_FILE" ]; then
@@ -326,21 +330,24 @@ jobs:
         
         export KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-error=incompatible-pointer-types -Wno-error=strict-prototypes"
 
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" a04_defconfig
+        kmake() { make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" "$@"; }
+
+        kmake a04_defconfig
 
         if [ -f "scripts/config" ]; then
           ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-TragicHorizon-v3-SukiSU"
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_KSU
-          make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" olddefconfig
+          kmake olddefconfig
         fi
 
-        make O=out HOSTCC=gcc HOSTCXX=g++ HOSTLD=/usr/bin/ld LD=aarch64-linux-gnu-ld CC="$CC" -j$(nproc)
+        kmake -j"$(nproc)"
 
     - name: Package with AnyKernel3
       run: |
-        git clone --depth=1 https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
+        source "$GITHUB_WORKSPACE/scripts/lib.sh"
+        clone_shallow https://github.com/DaniTheSillyFem/AnyKernel3-a04.git AnyKernel3
 
         if [ -f "kernel-source/out/arch/arm64/boot/Image.gz-dtb" ]; then
           cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/Image.gz-dtb
