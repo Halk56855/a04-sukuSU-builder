@@ -44,7 +44,8 @@ setup_toolchains() {
         mkdir -p gcc_temp
         tar -xzf gcc.tar.gz -C gcc_temp 2>/dev/null
         rm -f gcc.tar.gz
-        local GCC_BIN_DIR=$(find gcc_temp -type d -name "bin" -path "*/aarch64-linux-android-4.9/bin" | head -1)
+        local GCC_BIN_DIR
+        GCC_BIN_DIR=$(find gcc_temp -type d -name "bin" -path "*/aarch64-linux-android-4.9/bin" | head -1)
         mkdir -p aarch64-linux-android-4.9
         cp -r "$(dirname "$GCC_BIN_DIR")"/* aarch64-linux-android-4.9/
         rm -rf gcc_temp
@@ -54,6 +55,40 @@ setup_toolchains() {
         done
         cd ../..
     fi
+}
+
+apply_419_compat_patches() {
+    local dir="$1"
+    find "$dir" -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
+    find "$dir" -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
+    find "$dir" -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
+}
+
+patch_file_wrapper() {
+    local path="$1"
+    [ -f "$path" ] || return 0
+    log "Patching file_wrapper.c for Kernel 4.19 API..."
+    FILE_WRAPPER_PATH="$path" python3 -c '
+import os, re
+path = os.environ["FILE_WRAPPER_PATH"]
+try:
+    with open(path, "r") as f:
+        code = f.read()
+
+    if "<linux/version.h>" not in code:
+        code = "#include <linux/version.h>\n" + code
+
+    code = re.sub(r"(\.iopoll\s*=)", r"// \1", code)
+    code = re.sub(r"(\.remap_file_range\s*=)", r"// \1", code)
+    code = re.sub(r"(\bREMAP_FILE_DEDUP\b)", r"0", code)
+    code = re.sub(r"(\bksu_wrapper_iopoll\b)", r"NULL", code)
+    code = re.sub(r"(\bksu_wrapper_remap_file_range\b)", r"NULL", code)
+
+    with open(path, "w") as f:
+        f.write(code)
+except Exception as e:
+    print(f"Patch error: {e}")
+' || true
 }
 
 integrate_susfs_and_sukisu() {
@@ -96,35 +131,10 @@ integrate_susfs_and_sukisu() {
 
     # 7. إصلاحات التوافقية لنواة Linux 4.19
     log "Applying Kernel 4.19 compatibility patches..."
-    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/\baccess_ok(/access_ok(0, /g' {} + || true
-    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/MODULE_IMPORT_NS/\/\//g' {} + || true
-    find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' {} + || true
+    apply_419_compat_patches drivers/kernelsu
 
     # 8. معالجة ملف file_wrapper.c لنواة 4.19
-    if [ -f "drivers/kernelsu/infra/file_wrapper.c" ]; then
-        log "Patching file_wrapper.c for Kernel 4.19 API..."
-        python3 -c '
-import re
-path = "drivers/kernelsu/infra/file_wrapper.c"
-try:
-    with open(path, "r") as f:
-        code = f.read()
-
-    if "<linux/version.h>" not in code:
-        code = "#include <linux/version.h>\n" + code
-
-    code = re.sub(r"(\.iopoll\s*=)", r"// \1", code)
-    code = re.sub(r"(\.remap_file_range\s*=)", r"// \1", code)
-    code = re.sub(r"(\bREMAP_FILE_DEDUP\b)", r"0", code)
-    code = re.sub(r"(\bksu_wrapper_iopoll\b)", r"NULL", code)
-    code = re.sub(r"(\bksu_wrapper_remap_file_range\b)", r"NULL", code)
-
-    with open(path, "w") as f:
-        f.write(code)
-except Exception as e:
-    print(f"Patch error: {e}")
-' || true
-    fi
+    patch_file_wrapper "drivers/kernelsu/infra/file_wrapper.c"
 }
 
 configure_kernel() {
@@ -166,7 +176,11 @@ build_kernel() {
     local MAKE_OPTS=( -C "$(pwd)" O="$(pwd)/out" KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y ARCH=arm64 CC="${CC}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" )
 
     make "${MAKE_OPTS[@]}" -j"${JOBS}" 2>&1 | tee "${OUTPUT_DIR}/build.log" || make "${MAKE_OPTS[@]}" -j1 2>&1 | tee -a "${OUTPUT_DIR}/build.log"
-    [ -f "out/arch/arm64/boot/Image" ] && cp "out/arch/arm64/boot/Image" "arch/arm64/boot/Image" || err "Kernel Image build failed!"
+    if [ -f "out/arch/arm64/boot/Image" ]; then
+        cp "out/arch/arm64/boot/Image" "arch/arm64/boot/Image"
+    else
+        err "Kernel Image build failed!"
+    fi
 }
 
 package_kernel() {
@@ -185,6 +199,7 @@ package_kernel() {
     sed -i 's/is_slot_device=1/is_slot_device=0/g' anykernel.sh || true
 
     ZIP_NAME="SukiSU-SUSFS-A04-Kernel.zip"
+    # shellcheck disable=SC2035  # intentional glob of packaging contents and exclude patterns
     zip -r9 "${OUTPUT_DIR}/${ZIP_NAME}" * -x .git README.md *placeholder
     log "Created package: ${OUTPUT_DIR}/${ZIP_NAME}"
 }
@@ -199,4 +214,7 @@ main() {
     package_kernel
 }
 
-main "$@"
+# Only run when executed directly, so the functions can be sourced by tests.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    main "$@"
+fi
