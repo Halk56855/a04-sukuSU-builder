@@ -129,7 +129,13 @@ integrate_susfs_and_sukisu() {
 
     # 4. تشغيل أمر الدمج الرسمي لـ SukiSU-Ultra
     log "Running SukiSU-Ultra official setup script..."
-    curl -fLSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+    # Avoid piping curl directly into a shell: a dropped/partial download can
+    # execute truncated commands. Download to a file first, then run it so the
+    # fetched script is captured and inspectable.
+    local SETUP_SCRIPT="${WORK_DIR}/sukisu_setup.sh"
+    curl -fLSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" -o "$SETUP_SCRIPT" \
+        || err "Failed to download SukiSU-Ultra setup script"
+    bash "$SETUP_SCRIPT" builtin || err "SukiSU-Ultra setup script failed"
     [ -d "drivers/kernelsu" ] || err "SukiSU-Ultra setup did not create drivers/kernelsu"
 
     # 5. نسخ ملفات الترويسة الخاصة بـ SUSFS إلى مجلد include النواة لحل خطأ susfs_def.h
