@@ -72,7 +72,7 @@ jobs:
           sed -i 's/.*REMAP_FILE_DEDUP.*/\/* REMAP_FILE_DEDUP bypassed *\//g' "$FILE_WRAPPER" || true
         fi
 
-        # 5. إنشاء الترويسات المفقودة وتوليد flask.h الشامل
+        # 5. إنشاء الترويسات المفقودة وتوليد flask.h المحمي بالكامل مع جميع القيم والترويسات
         mkdir -p include/linux
         if [ ! -f "include/linux/seccomp_types.h" ]; then
           printf '%s\n' \
@@ -93,7 +93,7 @@ jobs:
         mkdir -p security/selinux/include
         mkdir -p security/selinux/ss
 
-        echo "Creating comprehensive stub flask.h header with all required socket security classes..."
+        echo "Generating safe and comprehensive flask.h with macro guards..."
         printf '%s\n' \
           '#ifndef _FLASK_H_' \
           '#ifndef _SELINUX_FLASK_H_' \
@@ -101,6 +101,7 @@ jobs:
           '#define _SELINUX_FLASK_H_' \
           '' \
           '/* Security Init IDs */' \
+          '#ifndef SECINITSID_NUM' \
           '#define SECINITSID_NUM 27' \
           '#define SECINITSID_KERNEL 1' \
           '#define SECINITSID_SECURITY 2' \
@@ -120,8 +121,10 @@ jobs:
           '#define SECINITSID_NETIF 16' \
           '#define SECINITSID_NODE 17' \
           '#define SECINITSID_DEVNULL 27' \
+          '#endif' \
           '' \
           '/* Security Classes */' \
+          '#ifndef SECCLASS_SECURITY' \
           '#define SECCLASS_SECURITY 1' \
           '#define SECCLASS_PROCESS 2' \
           '#define SECCLASS_SYSTEM 3' \
@@ -178,11 +181,18 @@ jobs:
           '#define SECCLASS_LLC_SOCKET 54' \
           '#define SECCLASS_CAN_SOCKET 55' \
           '#define SECCLASS_BINDER 78' \
+          '#endif' \
           '' \
-          '/* Permission definitions */' \
+          '/* Permission definitions with guards */' \
+          '#ifndef BINDER__CALL' \
           '#define BINDER__CALL 1' \
+          '#endif' \
+          '#ifndef BINDER__TRANSFER' \
           '#define BINDER__TRANSFER 2' \
+          '#endif' \
+          '#ifndef FD__USE' \
           '#define FD__USE 1' \
+          '#endif' \
           '' \
           '#endif' \
           '#endif' > security/selinux/include/flask.h
