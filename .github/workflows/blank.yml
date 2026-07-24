@@ -362,7 +362,7 @@ jobs:
         cd AnyKernel3
         rm -rf .git .github
 
-        zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * .zenflow* .gitignore 2>/devnull || zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" *
+        zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" * .zenflow* .gitignore 2>/dev/null || zip -r9 "../TragicHorizon-v3-SukiSU-Samsung-A04.zip" *
 
     - name: Upload AnyKernel3 Package
       uses: actions/upload-artifact@v4

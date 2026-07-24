@@ -29,7 +29,9 @@ download_kernel_source() {
     [ -f "$KERNEL_DIR/Makefile" ] && return
     log "Cloning Samsung Galaxy A04 kernel source..."
     mkdir -p "$KERNEL_DIR"
-    clone_shallow https://github.com/rsuntk-oss/android_kernel_samsung_a04m.git "$KERNEL_DIR" latest-B
+    clone_shallow https://github.com/rsuntk-oss/android_kernel_samsung_a04m.git "$KERNEL_DIR" latest-B \
+        || err "Failed to clone kernel source"
+    [ -f "$KERNEL_DIR/Makefile" ] || err "Kernel source clone did not produce a Makefile in $KERNEL_DIR"
 }
 
 setup_toolchains() {
@@ -39,15 +41,19 @@ setup_toolchains() {
     local MIRROR_BASE=https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains
 
     if [ ! -f "clang-r383902/bin/clang" ]; then
-        fetch_tar clang-r383902 "${MIRROR_BASE}/clang-r383902b.tar.gz"
+        fetch_tar clang-r383902 "${MIRROR_BASE}/clang-r383902b.tar.gz" \
+            || err "Failed to download or extract Clang toolchain"
+        [ -x "clang-r383902/bin/clang" ] || err "Clang binary missing after extraction"
     fi
 
     if [ ! -f "aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-ld" ]; then
         fetch_tar gcc_temp \
             "${MIRROR_BASE}/aarch64-linux-android-4.9.tar.gz" \
-            "${MIRROR_BASE}/aarch64-linux-android-4.9-Linux-5.4.tar.gz"
+            "${MIRROR_BASE}/aarch64-linux-android-4.9-Linux-5.4.tar.gz" \
+            || err "Failed to download or extract GCC toolchain"
         local GCC_BIN_DIR
         GCC_BIN_DIR=$(find gcc_temp -type d -name "bin" -path "*/aarch64-linux-android-4.9/bin" | head -1)
+        [ -n "$GCC_BIN_DIR" ] || err "Could not locate GCC bin directory in extracted toolchain"
         mkdir -p aarch64-linux-android-4.9
         cp -r "$(dirname "$GCC_BIN_DIR")"/* aarch64-linux-android-4.9/
         rm -rf gcc_temp
@@ -56,14 +62,19 @@ setup_toolchains() {
             [ -f "$f" ] && [ ! -e "${f/android-/androidkernel-}" ] && ln -sf "$f" "${f/android-/androidkernel-}"
         done
         cd ../..
+        [ -e "aarch64-linux-android-4.9/bin/aarch64-linux-androidkernel-ld" ] \
+            || err "GCC cross-compiler linker missing after setup"
     fi
 }
 
 apply_419_compat_patches() {
     local dir="$1"
-    sed_c_h "$dir" 's/\baccess_ok(/access_ok(0, /g' || true
-    sed_c_h "$dir" 's/MODULE_IMPORT_NS/\/\//g' || true
-    sed_c_h "$dir" 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' || true
+    sed_c_h "$dir" 's/\baccess_ok(/access_ok(0, /g' \
+        || err "Failed to apply access_ok compatibility patch in ${dir}"
+    sed_c_h "$dir" 's/MODULE_IMPORT_NS/\/\//g' \
+        || err "Failed to apply MODULE_IMPORT_NS compatibility patch in ${dir}"
+    sed_c_h "$dir" 's|#include <linux/pgtable.h>|#include <linux/mm.h>|g' \
+        || err "Failed to apply pgtable.h compatibility patch in ${dir}"
 }
 
 patch_file_wrapper() {
@@ -71,7 +82,7 @@ patch_file_wrapper() {
     [ -f "$path" ] || return 0
     log "Patching file_wrapper.c for Kernel 4.19 API..."
     FILE_WRAPPER_PATH="$path" python3 -c '
-import os, re
+import os, re, sys
 path = os.environ["FILE_WRAPPER_PATH"]
 try:
     with open(path, "r") as f:
@@ -89,8 +100,8 @@ try:
     with open(path, "w") as f:
         f.write(code)
 except Exception as e:
-    print(f"Patch error: {e}")
-' || true
+    sys.exit(f"Patch error: {e}")
+' || err "Failed to patch file_wrapper.c (${path})"
 }
 
 integrate_susfs_and_sukisu() {
@@ -108,7 +119,8 @@ integrate_susfs_and_sukisu() {
     # 2. إصلاح وحدة الاتصال لمعالجات MediaTek
     if [ -d "drivers/misc/mediatek/connectivity" ]; then
         rm -rf drivers/misc/mediatek/connectivity
-        clone_shallow https://github.com/rsuntkOrgs/mtk_connectivity_module.git drivers/misc/mediatek/connectivity staging-4.14 2>/dev/null || true
+        clone_shallow https://github.com/rsuntkOrgs/mtk_connectivity_module.git drivers/misc/mediatek/connectivity staging-4.14 \
+            || err "Failed to clone MediaTek connectivity module (original module was removed)"
         rm -rf drivers/misc/mediatek/connectivity/.git
     fi
 
@@ -117,18 +129,28 @@ integrate_susfs_and_sukisu() {
 
     # 4. تشغيل أمر الدمج الرسمي لـ SukiSU-Ultra
     log "Running SukiSU-Ultra official setup script..."
-    curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+    curl -fLSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+    [ -d "drivers/kernelsu" ] || err "SukiSU-Ultra setup did not create drivers/kernelsu"
 
     # 5. نسخ ملفات الترويسة الخاصة بـ SUSFS إلى مجلد include النواة لحل خطأ susfs_def.h
     log "Copying SUSFS header files to kernel include directory..."
     mkdir -p include/linux
-    cp -f "${WORK_DIR}/susfs4ksu/kernel_patches/include/linux/susfs.h" include/linux/ 2>/dev/null || true
-    cp -f "${WORK_DIR}/susfs4ksu/kernel_patches/include/linux/susfs_def.h" include/linux/ 2>/dev/null || true
+    local SUSFS_INC="${WORK_DIR}/susfs4ksu/kernel_patches/include/linux"
+    for h in susfs.h susfs_def.h; do
+        if [ -f "${SUSFS_INC}/${h}" ]; then
+            cp -f "${SUSFS_INC}/${h}" include/linux/ || err "Failed to copy SUSFS header ${h}"
+        else
+            warn "SUSFS header ${h} not found at ${SUSFS_INC}; skipping"
+        fi
+    done
 
     # 6. تطبيق رقع SUSFS على النواة إذا توفرت الرقعة المناسبة للإصدار 4.19
-    if [ -d "${WORK_DIR}/susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch" ]; then
+    local SUSFS_PATCH="${WORK_DIR}/susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch"
+    if [ -f "$SUSFS_PATCH" ]; then
         log "Applying SUSFS patch for Kernel 4.19..."
-        patch -p1 < "${WORK_DIR}/susfs4ksu/kernel_patches/50_add_susfs_in_v4.19.patch" || true
+        patch -p1 < "$SUSFS_PATCH" || err "Failed to apply SUSFS patch for Kernel 4.19"
+    else
+        warn "SUSFS 4.19 patch not found at ${SUSFS_PATCH}; skipping"
     fi
 
     # 7. إصلاحات التوافقية لنواة Linux 4.19
@@ -167,7 +189,7 @@ configure_kernel() {
     scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-SukiSU-SUSFS-A04"
     scripts/config --file out/.config --disable CONFIG_LOCALVERSION_AUTO
 
-    kmake olddefconfig 2>/dev/null || true
+    kmake olddefconfig || err "Failed to finalize kernel config (olddefconfig)"
 }
 
 build_kernel() {
@@ -176,7 +198,7 @@ build_kernel() {
 
     kmake -j"${JOBS}" 2>&1 | tee "${OUTPUT_DIR}/build.log" || kmake -j1 2>&1 | tee -a "${OUTPUT_DIR}/build.log"
     if [ -f "out/arch/arm64/boot/Image" ]; then
-        cp "out/arch/arm64/boot/Image" "arch/arm64/boot/Image"
+        cp "out/arch/arm64/boot/Image" "arch/arm64/boot/Image" || err "Failed to copy built kernel Image"
     else
         err "Kernel Image build failed!"
     fi
@@ -187,19 +209,29 @@ package_kernel() {
     mkdir -p "$OUTPUT_DIR"
     cd "$WORK_DIR"
     rm -rf AnyKernel3
-    clone_shallow https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+    clone_shallow https://github.com/osm0sis/AnyKernel3.git AnyKernel3 \
+        || err "Failed to clone AnyKernel3"
 
+    local img_copied=0
     for img in "out/arch/arm64/boot/Image.gz-dtb" "out/arch/arm64/boot/Image.gz" "out/arch/arm64/boot/Image"; do
-        [ -f "${KERNEL_DIR}/${img}" ] && cp "${KERNEL_DIR}/${img}" AnyKernel3/ && break
+        if [ -f "${KERNEL_DIR}/${img}" ]; then
+            cp "${KERNEL_DIR}/${img}" AnyKernel3/ || err "Failed to copy ${img} into AnyKernel3"
+            img_copied=1
+            break
+        fi
     done
+    [ "$img_copied" -eq 1 ] || err "No kernel image found to package"
 
     cd AnyKernel3
-    sed -i 's/block=auto/block=\/dev\/block\/by-name\/boot/g' anykernel.sh || true
-    sed -i 's/is_slot_device=1/is_slot_device=0/g' anykernel.sh || true
+    sed -i 's/block=auto/block=\/dev\/block\/by-name\/boot/g' anykernel.sh \
+        || err "Failed to configure anykernel.sh (block)"
+    sed -i 's/is_slot_device=1/is_slot_device=0/g' anykernel.sh \
+        || err "Failed to configure anykernel.sh (is_slot_device)"
 
     ZIP_NAME="SukiSU-SUSFS-A04-Kernel.zip"
     # shellcheck disable=SC2035  # intentional glob of packaging contents and exclude patterns
-    zip -r9 "${OUTPUT_DIR}/${ZIP_NAME}" * -x .git README.md *placeholder
+    zip -r9 "${OUTPUT_DIR}/${ZIP_NAME}" * -x .git README.md *placeholder \
+        || err "Failed to create AnyKernel3 zip package"
     log "Created package: ${OUTPUT_DIR}/${ZIP_NAME}"
 }
 
